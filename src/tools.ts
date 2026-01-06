@@ -378,18 +378,40 @@ function parseContratoResponse(xml: string): ContratoResponse {
             return { success: false, error: faultMsg };
         }
 
+        // Build address from API fields: calle, numero, municipio, provincia
+        const calle = parseXMLValue(xml, "calle") || "";
+        const numero = parseXMLValue(xml, "numero") || "";
+        const municipio = parseXMLValue(xml, "municipio") || "";
+        const provincia = parseXMLValue(xml, "provincia") || "";
+        const dirCorrespondencia = parseXMLValue(xml, "dirCorrespondencia") || "";
+
+        // Use dirCorrespondencia if available, otherwise build from components
+        let direccion = dirCorrespondencia;
+        if (!direccion && calle) {
+            direccion = `${calle} ${numero}`.trim();
+            if (municipio) direccion += `, ${municipio}`;
+        }
+
+        // Determine status based on fechaBaja
+        const fechaBaja = parseXMLValue(xml, "fechaBaja");
+        const estado = fechaBaja && !xml.includes('fechaBaja xmlns:xsi') ? 'suspendido' : 'activo';
+
+        // Format fechaAlta to readable date
+        const fechaAltaRaw = parseXMLValue(xml, "fechaAlta") || "";
+        const fechaAlta = fechaAltaRaw ? fechaAltaRaw.split('T')[0] : "";
+
         return {
             success: true,
             data: {
-                numeroContrato: parseXMLValue(xml, "numeroContrato") || parseXMLValue(xml, "contrato") || "",
-                titular: parseXMLValue(xml, "nombreTitular") || parseXMLValue(xml, "titular") || "",
-                direccion: parseXMLValue(xml, "direccion") || parseXMLValue(xml, "domicilio") || "",
-                colonia: parseXMLValue(xml, "colonia") || "",
+                numeroContrato: parseXMLValue(xml, "numeroContrato") || "",
+                titular: parseXMLValue(xml, "titular") || "",
+                direccion: direccion,
+                colonia: municipio || provincia || "",
                 codigoPostal: parseXMLValue(xml, "codigoPostal") || parseXMLValue(xml, "cp") || "",
-                tarifa: parseXMLValue(xml, "tarifa") || parseXMLValue(xml, "tipoTarifa") || "",
-                estado: (parseXMLValue(xml, "estado") || "activo") as 'activo' | 'suspendido' | 'cortado',
-                fechaAlta: parseXMLValue(xml, "fechaAlta") || "",
-                ultimaLectura: parseXMLValue(xml, "ultimaLectura") || undefined
+                tarifa: parseXMLValue(xml, "descUso") || parseXMLValue(xml, "tipoUso") || "",
+                estado: estado as 'activo' | 'suspendido' | 'cortado',
+                fechaAlta: fechaAlta,
+                ultimaLectura: parseXMLValue(xml, "numeroContador") || undefined
             }
         };
     } catch (error) {
