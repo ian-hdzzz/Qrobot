@@ -492,16 +492,41 @@ export async function createTicketDirect(input: CreateTicketInput): Promise<Crea
         const priority = PRIORITY_MAP[input.priority || "media"] || "medium";
         const status = "open"; // Always start as open
 
-        // Insert into PostgreSQL
+        // Look up contact_id by contract_number if not provided
+        let contactId = input.contact_id || null;
+        let clientName = input.client_name || null;
+
+        if (!contactId && input.contract_number) {
+            try {
+                const contacts = await pgQuery<{ id: number; name: string }>(`
+                    SELECT id, name FROM contacts
+                    WHERE identifier = $1
+                       OR custom_attributes->>'contract_number' = $1
+                    LIMIT 1
+                `, [input.contract_number]);
+
+                if (contacts && contacts.length > 0) {
+                    contactId = contacts[0].id;
+                    clientName = clientName || contacts[0].name;
+                    console.log(`[create_ticket_direct] Found contact: ${contactId} (${clientName})`);
+                }
+            } catch (err) {
+                console.warn(`[create_ticket_direct] Could not look up contact:`, err);
+            }
+        }
+
+        // Insert into PostgreSQL with contact linkage
         const result = await pgQuery<{ id: number; folio: string }>(`
             INSERT INTO tickets (
                 account_id, folio, title, description, status, priority,
                 ticket_type, service_type, channel, contract_number,
-                client_name, metadata, created_at, updated_at
+                client_name, contact_id, conversation_id, inbox_id,
+                metadata, created_at, updated_at
             ) VALUES (
                 2, $1, $2, $3, $4, $5,
                 $6, $7, 'whatsapp', $8,
-                $9, $10, NOW(), NOW()
+                $9, $10, $11, $12,
+                $13, NOW(), NOW()
             )
             RETURNING id, folio
         `, [
@@ -513,7 +538,10 @@ export async function createTicketDirect(input: CreateTicketInput): Promise<Crea
             ticketType,
             serviceType,
             input.contract_number || null,
-            input.contract_number ? null : 'Cliente WhatsApp', // Will be filled if contract provided
+            clientName || 'Cliente WhatsApp',
+            contactId,
+            input.conversation_id || null,
+            input.inbox_id || null,
             JSON.stringify({
                 email: input.email || null,
                 ubicacion: input.ubicacion || null
@@ -522,7 +550,7 @@ export async function createTicketDirect(input: CreateTicketInput): Promise<Crea
 
         const createdTicket = result[0];
 
-        console.log(`[create_ticket_direct] Created ticket with folio: ${createdTicket.folio}`);
+        console.log(`[create_ticket_direct] Created ticket with folio: ${createdTicket.folio}, contact_id: ${contactId}`);
 
         return {
             success: true,

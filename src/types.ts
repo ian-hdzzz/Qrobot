@@ -195,6 +195,9 @@ export interface CreateTicketInput {
     ubicacion?: string | null;
     priority?: TicketPriority;
     client_name?: string | null;
+    contact_id?: number | null;
+    conversation_id?: number | null;
+    inbox_id?: number | null;
 }
 
 export interface CreateTicketResult {
