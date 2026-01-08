@@ -17,6 +17,10 @@ import {
     getMexicoDate,
     createTicketDirect
 } from "./tools.js";
+import { runWithChatwootContext, getCurrentChatwootContext, type ChatwootContext } from "./context.js";
+
+// Re-export for external use
+export { getCurrentChatwootContext };
 
 // ============================================
 // Configuration
@@ -37,6 +41,10 @@ interface ConversationEntry {
     lastAccess: Date;
     contractNumber?: string;
     classification?: Classification;
+    // Chatwoot integration fields for linking tickets
+    chatwootConversationId?: number;
+    chatwootContactId?: number;
+    chatwootInboxId?: number;
 }
 
 const conversationStore = new Map<string, ConversationEntry>();
@@ -462,17 +470,35 @@ async function runAgentWithApproval(
 export async function runWorkflow(input: WorkflowInput): Promise<WorkflowOutput> {
     const startTime = Date.now();
     const conversationId = input.conversationId || crypto.randomUUID();
-    
-    return await withTrace("María-CEA-v2", async () => {
-        console.log(`\n========== WORKFLOW START ==========`);
-        console.log(`ConversationId: ${conversationId}`);
-        console.log(`Input: "${input.input_as_text}"`);
-        
-        // Get or create conversation
-        const conversation = getConversation(conversationId);
-        
-        // Build context-enhanced input
-        const contextualInput = `${buildSystemContext()}\n${input.input_as_text}`;
+
+    // Extract Chatwoot context for linking tickets
+    // conversationId from Chatwoot is passed as string but may be numeric
+    const chatwootConversationId = input.conversationId ? parseInt(input.conversationId, 10) : undefined;
+    const chatwootContext: ChatwootContext = {
+        conversationId: !isNaN(chatwootConversationId!) ? chatwootConversationId : undefined,
+        contactId: input.contactId
+    };
+
+    if (chatwootContext.conversationId || chatwootContext.contactId) {
+        console.log(`[Workflow] Chatwoot context: conversation=${chatwootContext.conversationId}, contact=${chatwootContext.contactId}`);
+    }
+
+    // Run workflow within Chatwoot context so tools can access it
+    return await runWithChatwootContext(chatwootContext, async () => {
+        return await withTrace("María-CEA-v2", async () => {
+            console.log(`\n========== WORKFLOW START ==========`);
+            console.log(`ConversationId: ${conversationId}`);
+            console.log(`Input: "${input.input_as_text}"`);
+
+            // Get or create conversation
+            const conversation = getConversation(conversationId);
+
+            // Store Chatwoot IDs in conversation for persistence
+            if (chatwootContext.conversationId) conversation.chatwootConversationId = chatwootContext.conversationId;
+            if (chatwootContext.contactId) conversation.chatwootContactId = chatwootContext.contactId;
+
+            // Build context-enhanced input
+            const contextualInput = `${buildSystemContext()}\n${input.input_as_text}`;
         
         // Add user message to history
         const userMessage: AgentInputItem = {
@@ -577,13 +603,14 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowOutput>
             
         } catch (error) {
             console.error(`[Workflow] Error:`, error);
-            
+
             return {
                 output_text: "Lo siento, tuve un problema procesando tu mensaje. ¿Podrías intentar de nuevo? 💧",
                 error: error instanceof Error ? error.message : "Unknown error",
                 toolsUsed
             };
         }
+        });
     });
 }
 

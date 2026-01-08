@@ -5,6 +5,8 @@
 export interface ChatRequest {
     message: string;
     conversationId?: string;
+    // Chatwoot integration fields for linking tickets (from Chatwoot webhook)
+    contactId?: number;
     metadata?: {
         whatsapp?: string;
         channel?: 'whatsapp' | 'web' | 'api';
@@ -70,7 +72,13 @@ export const TICKET_TYPE_CODES = {
 export interface WorkflowInput {
     input_as_text: string;
     conversationId?: string;
-    metadata?: Record<string, unknown>;
+    // Chatwoot integration fields for linking tickets (from Chatwoot webhook)
+    contactId?: number;
+    metadata?: {
+        whatsapp?: string;
+        channel?: 'whatsapp' | 'web' | 'api';
+        [key: string]: unknown;
+    };
 }
 
 export interface WorkflowOutput {

@@ -18,6 +18,7 @@ import type {
     ContratoResponse,
     TicketType,
 } from "./types.js";
+import { getCurrentChatwootContext } from "./context.js";
 
 // ============================================
 // Configuration
@@ -482,6 +483,10 @@ async function pgQuery<T = any>(query: string, params?: any[]): Promise<T[]> {
 export async function createTicketDirect(input: CreateTicketInput): Promise<CreateTicketResult> {
     console.log(`[create_ticket_direct] Creating ticket:`, input);
 
+    // Get Chatwoot context for automatic linking
+    const chatwootContext = getCurrentChatwootContext();
+    console.log(`[create_ticket_direct] Chatwoot context: conversation=${chatwootContext.conversationId}, contact=${chatwootContext.contactId}`);
+
     try {
         // Generate folio with proper sequential numbering from PostgreSQL
         const folio = await generateTicketFolioFromPG(input.service_type);
@@ -492,10 +497,28 @@ export async function createTicketDirect(input: CreateTicketInput): Promise<Crea
         const priority = PRIORITY_MAP[input.priority || "media"] || "medium";
         const status = "open"; // Always start as open
 
-        // Look up contact_id by contract_number if not provided
-        let contactId = input.contact_id || null;
+        // Use Chatwoot context for contact_id and conversation_id if not explicitly provided
+        let contactId = input.contact_id ?? chatwootContext.contactId ?? null;
+        let conversationId = input.conversation_id ?? chatwootContext.conversationId ?? null;
+        let inboxId = input.inbox_id ?? chatwootContext.inboxId ?? null;
         let clientName = input.client_name || null;
 
+        // If we have contactId from Chatwoot context, fetch client name
+        if (contactId && !clientName) {
+            try {
+                const contacts = await pgQuery<{ name: string }>(`
+                    SELECT name FROM contacts WHERE id = $1 LIMIT 1
+                `, [contactId]);
+                if (contacts && contacts.length > 0) {
+                    clientName = contacts[0].name;
+                    console.log(`[create_ticket_direct] Found contact name from Chatwoot: ${clientName}`);
+                }
+            } catch (err) {
+                console.warn(`[create_ticket_direct] Could not look up contact name:`, err);
+            }
+        }
+
+        // Look up contact_id by contract_number if still not found
         if (!contactId && input.contract_number) {
             try {
                 const contacts = await pgQuery<{ id: number; name: string }>(`
@@ -540,8 +563,8 @@ export async function createTicketDirect(input: CreateTicketInput): Promise<Crea
             input.contract_number || null,
             clientName || 'Cliente WhatsApp',
             contactId,
-            input.conversation_id || null,
-            input.inbox_id || null,
+            conversationId,
+            inboxId,
             JSON.stringify({
                 email: input.email || null,
                 ubicacion: input.ubicacion || null
@@ -550,7 +573,7 @@ export async function createTicketDirect(input: CreateTicketInput): Promise<Crea
 
         const createdTicket = result[0];
 
-        console.log(`[create_ticket_direct] Created ticket with folio: ${createdTicket.folio}, contact_id: ${contactId}`);
+        console.log(`[create_ticket_direct] Created ticket with folio: ${createdTicket.folio}, contact_id: ${contactId}, conversation_id: ${conversationId}`);
 
         return {
             success: true,

@@ -103,8 +103,8 @@ async function handleChat(req: Request, res: Response): Promise<void> {
     const requestId = (req as any).requestId || crypto.randomUUID().substring(0, 8);
     
     try {
-        // Extract request data
-        let { message, conversationId, metadata } = req.body as ChatRequest;
+        // Extract request data (conversationId is the Chatwoot conversation ID)
+        let { message, conversationId, contactId, metadata } = req.body as ChatRequest;
 
         // Sanitize message input - handle arrays or stringified arrays
         if (Array.isArray(message)) {
@@ -142,9 +142,11 @@ async function handleChat(req: Request, res: Response): Promise<void> {
         console.log(`[${requestId}] Processing: "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"`);
         
         // Run the agent workflow
+        // conversationId from Chatwoot is numeric - we use it as both the conversation tracker and Chatwoot link
         const result = await runWorkflow({
             input_as_text: message,
             conversationId: conversationId,
+            contactId: contactId,
             metadata: metadata
         });
         
