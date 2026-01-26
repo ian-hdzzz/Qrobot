@@ -9,7 +9,7 @@ import pg from "pg";
 
 // PostgreSQL configuration
 const PG_CONFIG = {
-    host: process.env.PGHOST || 'whisper-api_agora_postgres',
+    host: process.env.PGHOST || '136.107.45.255',
     port: parseInt(process.env.PGPORT || '5432'),
     user: process.env.PGUSER || 'postgres',
     password: process.env.PGPASSWORD || '',
@@ -135,18 +135,20 @@ async function createTestTicket(): Promise<string | null> {
     try {
         const client = await pool.connect();
 
+        const accountId = parseInt(process.env.AGENT_ACCOUNT_ID || '1');
         const result = await client.query(`
             INSERT INTO tickets (
                 account_id, folio, title, description, status, priority,
                 ticket_type, service_type, channel, contract_number,
                 client_name, metadata, created_at, updated_at
             ) VALUES (
-                2, $1, $2, $3, $4, $5,
-                $6, $7, 'whatsapp', $8,
-                $9, $10, NOW(), NOW()
+                $1, $2, $3, $4, $5, $6,
+                $7, $8, 'whatsapp', $9,
+                $10, $11, NOW(), NOW()
             )
             RETURNING id, folio, created_at
         `, [
+            accountId,
             folio,
             "Test Ticket - Agent API Test",
             "This is a test ticket created by the agent API test script to verify ticket creation functionality.",

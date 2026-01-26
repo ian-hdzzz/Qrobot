@@ -31,7 +31,7 @@ const PROXY_URL = process.env.CEA_PROXY_URL || null; // e.g., "http://10.128.0.7
 
 // PostgreSQL configuration for AGORA (Chatwoot)
 const PG_CONFIG = {
-    host: process.env.PGHOST || 'whisper-api_agora_postgres',
+    host: process.env.PGHOST || '136.107.45.255',
     port: parseInt(process.env.PGPORT || '5432'),
     user: process.env.PGUSER || 'postgres',
     password: process.env.PGPASSWORD || '',
@@ -546,13 +546,14 @@ export async function createTicketDirect(input: CreateTicketInput): Promise<Crea
                 client_name, contact_id, conversation_id, inbox_id,
                 metadata, created_at, updated_at
             ) VALUES (
-                2, $1, $2, $3, $4, $5,
-                $6, $7, 'whatsapp', $8,
-                $9, $10, $11, $12,
-                $13, NOW(), NOW()
+                $1, $2, $3, $4, $5, $6,
+                $7, $8, 'whatsapp', $9,
+                $10, $11, $12, $13,
+                $14, NOW(), NOW()
             )
             RETURNING id, folio
         `, [
+            parseInt(process.env.AGENT_ACCOUNT_ID || '1'),
             folio,
             input.titulo,
             input.descripcion,

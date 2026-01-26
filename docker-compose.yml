@@ -29,12 +29,17 @@ services:
       # CEA API Proxy (optional - for CEA SOAP calls)
       - CEA_PROXY_URL=${CEA_PROXY_URL:-}
       # PostgreSQL - AGORA Database
-      - PGHOST=whisper-api_agora_postgres
-      - PGPORT=5432
-      - PGUSER=postgres
+      - PGHOST=${PGHOST:-136.107.45.255}
+      - PGPORT=${PGPORT:-5432}
+      - PGUSER=${PGUSER:-postgres}
       - PGPASSWORD=${PGPASSWORD}
-      - PGDATABASE=agora_production
-      - PGPOOL_MAX=10
+      - PGDATABASE=${PGDATABASE:-agora_production}
+      - PGPOOL_MAX=${PGPOOL_MAX:-10}
+      # Agent Configuration
+      - AGENT_ACCOUNT_ID=${AGENT_ACCOUNT_ID:-1}
+      # Evolution API
+      - EVOLUTION_API_URL=${EVOLUTION_API_URL:-https://evolution.whoopflow.com}
+      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
     networks:
       - easypanel-whisper-api
     healthcheck:
