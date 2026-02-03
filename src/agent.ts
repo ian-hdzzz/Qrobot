@@ -37,26 +37,30 @@ const MODELS = {
 // Santiago Welcome Message
 // ============================================
 
-const SANTIAGO_WELCOME_MESSAGE = `Hola, soy Santiago, tu asistente del Gobierno del Estado de Queretaro.
+const SANTIAGO_WELCOME_MESSAGE = `Hola 👋
+Bienvenido al Gobierno de Querétaro, soy Santiago, tu asistente virtual.
 
-Puedo ayudarte con los siguientes servicios:
+Ingresa el número de alguna de las siguientes opciones:
+👇
 
-1. Atencion Ciudadana
-2. Transporte Publico (AMEQ)
-3. Servicios de Agua Potable (CEA)
-4. Educacion Basica (USEBEQ)
-5. Tramites Vehiculares
-6. Atencion Psicologica (SEJUVE)
-7. Atencion a Mujeres (IQM)
-8. Cultura
-9. Registro Publico (RPP)
-10. Conciliacion Laboral (CCLQ)
-11. Vivienda (IVEQ)
-12. Atencion APPQRO
-13. Programas Sociales (SEDESOQ)
-14. Hablar con un asesor
+1. Atención Ciudadana 🤝
+2. Transporte Público - AMEQ 🚌
+3. Servicios de Agua Potable - CEA 💧
+4. Educación Básica - USEBEQ 📚
+5. Trámites Vehiculares 🚗
+6. Atención Psicológica - SEJUVE 👥
+7. Atención a Mujeres - IQM 👩
+8. Cultura - Secretaría de Cultura 🎭
+9. Registro Público - RPP 📋
+10. Conciliación Laboral - CCLQ ✍️
+11. Instituto de la Vivienda - IVEQ 🏠
+12. Atención APPQRO 📱
+13. Programas Sociales - SEDESOQ 🫶
+14. Hablar con un asesor 💬
 
-Escribe el numero de la opcion o simplemente dime en que te puedo ayudar.`;
+Si necesitas algún otro servicio, solo pídemelo 😊
+
+¿Cuál es tu opción?`;
 
 // ============================================
 // Conversation Store (Production: use Redis)
@@ -67,6 +71,9 @@ interface ConversationEntry {
     lastAccess: Date;
     contractNumber?: string;
     classification?: Classification;
+    // Active flow tracking - keeps user in current flow until it finishes
+    activeFlow?: Classification;
+    activeCeaSubType?: CeaSubClassification;
     chatwootConversationId?: number;
     chatwootContactId?: number;
     chatwootInboxId?: number;
@@ -869,13 +876,16 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowOutput>
             if (chatwootContext.conversationId) conversation.chatwootConversationId = chatwootContext.conversationId;
             if (chatwootContext.contactId) conversation.chatwootContactId = chatwootContext.contactId;
 
-            // Check if this is a greeting in a new conversation -> show menu
+            // Check if this is a greeting -> show menu (new conversation or reset)
             const isNewConversation = conversation.history.length === 0;
             const trimmedInput = input.input_as_text.trim();
             const isGreeting = /^(hola|buenos?\s*(d[ií]as|tardes|noches)|hey|que\s*tal|hi|buenas|saludos)\s*[.!?]*$/i.test(trimmedInput);
 
-            if (isNewConversation && isGreeting) {
-                console.log(`[Workflow] New conversation greeting -> showing Santiago menu`);
+            if (isGreeting) {
+                // Reset active flow on greeting
+                conversation.activeFlow = undefined;
+                conversation.activeCeaSubType = undefined;
+                console.log(`[Workflow] Greeting detected -> showing Santiago menu${isNewConversation ? ' (new conversation)' : ' (flow reset)'}`);
 
                 // Add to history
                 const userMessage: AgentInputItem = {
@@ -920,22 +930,48 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowOutput>
             });
 
             try {
-                // Step 1: Classification
-                console.log(`[Workflow] Running classification...`);
-                const classificationResult = await runner.run(classificationAgent, workingHistory);
+                // Step 1: Determine if user is continuing an active flow or starting new
+                let classification: Classification;
+                let ceaSubType: CeaSubClassification | null = null;
 
-                if (!classificationResult.finalOutput) {
-                    throw new Error("Classification failed - no output");
-                }
+                // Check if user explicitly wants to switch (menu number or clear new topic)
+                const isMenuNumber = /^\s*(\d{1,2})\s*$/.test(trimmedInput);
+                const isExplicitSwitch = isMenuNumber || /^(menu|menú|cambiar|otro servicio|salir)/i.test(trimmedInput);
 
-                const classification = classificationResult.finalOutput.classification as Classification;
-                const extractedContract = classificationResult.finalOutput.extractedContract;
-                const ceaSubType = classificationResult.finalOutput.ceaSubType as CeaSubClassification | null;
+                if (conversation.activeFlow && !isExplicitSwitch) {
+                    // User is in an active flow - keep them there
+                    classification = conversation.activeFlow;
+                    ceaSubType = conversation.activeCeaSubType || null;
+                    console.log(`[Workflow] Continuing active flow: ${classification}${ceaSubType ? ` (CEA: ${ceaSubType})` : ''}`);
 
-                console.log(`[Workflow] Classification: ${classification}${ceaSubType ? ` (CEA: ${ceaSubType})` : ''}`);
-                if (extractedContract) {
-                    console.log(`[Workflow] Extracted contract: ${extractedContract}`);
-                    conversation.contractNumber = extractedContract;
+                    // Still extract contract number if present
+                    const contractMatch = trimmedInput.match(/\b(\d{6,10})\b/);
+                    if (contractMatch) {
+                        conversation.contractNumber = contractMatch[1];
+                        console.log(`[Workflow] Extracted contract from active flow: ${contractMatch[1]}`);
+                    }
+                } else {
+                    // No active flow or explicit switch - classify normally
+                    console.log(`[Workflow] Running classification...`);
+                    const classificationResult = await runner.run(classificationAgent, workingHistory);
+
+                    if (!classificationResult.finalOutput) {
+                        throw new Error("Classification failed - no output");
+                    }
+
+                    classification = classificationResult.finalOutput.classification as Classification;
+                    const extractedContract = classificationResult.finalOutput.extractedContract;
+                    ceaSubType = classificationResult.finalOutput.ceaSubType as CeaSubClassification | null;
+
+                    console.log(`[Workflow] Classification: ${classification}${ceaSubType ? ` (CEA: ${ceaSubType})` : ''}`);
+                    if (extractedContract) {
+                        console.log(`[Workflow] Extracted contract: ${extractedContract}`);
+                        conversation.contractNumber = extractedContract;
+                    }
+
+                    // Set the active flow
+                    conversation.activeFlow = classification;
+                    conversation.activeCeaSubType = ceaSubType || undefined;
                 }
 
                 // Save classification to conversation
@@ -960,6 +996,9 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowOutput>
 
                     const folio = ticketResult.folio || "PENDING";
                     output = `He creado tu solicitud con el folio ${folio}. Te conectare con un asesor humano. Por favor espera un momento.`;
+                    // Flow ends after creating ticket
+                    conversation.activeFlow = undefined;
+                    conversation.activeCeaSubType = undefined;
 
                     toolsUsed.push("create_ticket");
 
@@ -983,6 +1022,13 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowOutput>
                     output = agentResult.output;
                     newItems = agentResult.newItems;
                     toolsUsed.push(...agentResult.toolsUsed);
+                }
+
+                // If a ticket was created in this turn, the flow is complete
+                if (toolsUsed.includes("create_ticket") || toolsUsed.includes("create_general_ticket")) {
+                    console.log(`[Workflow] Ticket created - flow complete, clearing active flow`);
+                    conversation.activeFlow = undefined;
+                    conversation.activeCeaSubType = undefined;
                 }
 
                 // Step 4: Update conversation history
