@@ -1,5 +1,5 @@
 # ============================================
-# CEA Agent Server - Docker Compose for Testing
+# Santiago - Gobierno de Queretaro - Docker Compose
 # ============================================
 #
 # Usage:
@@ -12,11 +12,11 @@
 # on the easypanel-whisper-api swarm network.
 
 services:
-  cea-agent:
+  santiago:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: cea-agent-v2
+    container_name: santiago-queretaro
     restart: unless-stopped
     ports:
       - "3000:3000"

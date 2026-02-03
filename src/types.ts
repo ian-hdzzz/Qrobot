@@ -1,5 +1,5 @@
 // ============================================
-// CEA Agent Types - Production Ready
+// Santiago - Gobierno de Querétaro Types
 // ============================================
 
 export interface ChatRequest {
@@ -25,23 +25,53 @@ export interface ChatResponse {
     };
 }
 
-export type Classification = 
-    | "fuga"
-    | "pagos"
+export type Classification =
+    | "atencion_ciudadana"
+    | "transporte_ameq"
+    | "agua_cea"
+    | "educacion_usebeq"
+    | "tramites_vehiculares"
+    | "psicologia_sejuve"
+    | "mujeres_iqm"
+    | "cultura"
+    | "registro_publico_rpp"
+    | "conciliacion_cclq"
+    | "vivienda_iveq"
+    | "appqro"
+    | "programas_sedesoq"
     | "hablar_asesor"
-    | "informacion"
-    | "consumos"
-    | "contrato"
     | "tickets";
 
+export type CeaSubClassification =
+    | "fuga"
+    | "pagos"
+    | "consumos"
+    | "contrato"
+    | "informacion_cea";
+
 export type TicketType =
+    // CEA (agua) - existentes
     | "fuga"              // FUG - Fugas/Leaks
     | "aclaraciones"      // ACL - Clarifications
     | "pagos"             // PAG - Payments
     | "lecturas"          // LEC - Meter readings
     | "revision_recibo"   // REV - Receipt review
     | "recibo_digital"    // DIG - Digital receipt
-    | "urgente";          // URG - Urgent (human advisor)
+    | "urgente"           // URG - Urgent (human advisor)
+    // Gobierno de Querétaro - nuevos
+    | "atencion_ciudadana"    // ATC
+    | "transporte"            // TRA
+    | "educacion"             // EDU
+    | "vehicular"             // VEH
+    | "psicologia"            // PSI
+    | "atencion_mujeres"      // MUJ
+    | "cultura"               // CUL
+    | "registro_publico"      // RPP
+    | "conciliacion_laboral"  // CCL
+    | "vivienda"              // VIV
+    | "appqro"                // APP
+    | "programas_sociales"    // SOC
+    | "general";              // GEN
 
 export type TicketStatus = 
     | "abierto"
@@ -56,13 +86,28 @@ export type TicketStatus =
 export type TicketPriority = "urgente" | "alta" | "media" | "baja";
 
 export const TICKET_TYPE_CODES = {
+    // CEA (agua)
     fuga: "FUG",
     aclaraciones: "ACL",
     pagos: "PAG",
     lecturas: "LEC",
     revision_recibo: "REV",
     recibo_digital: "DIG",
-    urgente: "URG"
+    urgente: "URG",
+    // Gobierno de Querétaro
+    atencion_ciudadana: "ATC",
+    transporte: "TRA",
+    educacion: "EDU",
+    vehicular: "VEH",
+    psicologia: "PSI",
+    atencion_mujeres: "MUJ",
+    cultura: "CUL",
+    registro_publico: "RPP",
+    conciliacion_laboral: "CCL",
+    vivienda: "VIV",
+    appqro: "APP",
+    programas_sociales: "SOC",
+    general: "GEN"
 } as const;
 
 // ============================================

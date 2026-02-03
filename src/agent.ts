@@ -1,15 +1,16 @@
 // ============================================
-// CEA Agent System - Production Ready v2.0
+// Santiago - Gobierno de Querétaro Agent System v1.0
 // ============================================
 
 import { Agent, AgentInputItem, Runner, withTrace } from "@openai/agents";
 import { z } from "zod";
-import type { WorkflowInput, WorkflowOutput, Classification } from "./types.js";
+import type { WorkflowInput, WorkflowOutput, Classification, CeaSubClassification } from "./types.js";
 import {
     getDeudaTool,
     getConsumoTool,
     getContratoTool,
     createTicketTool,
+    createGeneralTicketTool,
     getClientTicketsTool,
     searchCustomerByContractTool,
     updateTicketTool,
@@ -33,6 +34,31 @@ const MODELS = {
 } as const;
 
 // ============================================
+// Santiago Welcome Message
+// ============================================
+
+const SANTIAGO_WELCOME_MESSAGE = `Hola, soy Santiago, tu asistente del Gobierno del Estado de Queretaro.
+
+Puedo ayudarte con los siguientes servicios:
+
+1. Atencion Ciudadana
+2. Transporte Publico (AMEQ)
+3. Servicios de Agua Potable (CEA)
+4. Educacion Basica (USEBEQ)
+5. Tramites Vehiculares
+6. Atencion Psicologica (SEJUVE)
+7. Atencion a Mujeres (IQM)
+8. Cultura
+9. Registro Publico (RPP)
+10. Conciliacion Laboral (CCLQ)
+11. Vivienda (IVEQ)
+12. Atencion APPQRO
+13. Programas Sociales (SEDESOQ)
+14. Hablar con un asesor
+
+Escribe el numero de la opcion o simplemente dime en que te puedo ayudar.`;
+
+// ============================================
 // Conversation Store (Production: use Redis)
 // ============================================
 
@@ -41,7 +67,6 @@ interface ConversationEntry {
     lastAccess: Date;
     contractNumber?: string;
     classification?: Classification;
-    // Chatwoot integration fields for linking tickets
     chatwootConversationId?: number;
     chatwootContactId?: number;
     chatwootInboxId?: number;
@@ -57,7 +82,7 @@ setInterval(() => {
             conversationStore.delete(id);
         }
     }
-}, 300000); // Check every 5 minutes
+}, 300000);
 
 function getConversation(id: string): ConversationEntry {
     const existing = conversationStore.get(id);
@@ -65,7 +90,7 @@ function getConversation(id: string): ConversationEntry {
         existing.lastAccess = new Date();
         return existing;
     }
-    
+
     const newEntry: ConversationEntry = {
         history: [],
         lastAccess: new Date()
@@ -80,16 +105,26 @@ function getConversation(id: string): ConversationEntry {
 
 const ClassificationSchema = z.object({
     classification: z.enum([
-        "fuga",
-        "pagos",
+        "atencion_ciudadana",
+        "transporte_ameq",
+        "agua_cea",
+        "educacion_usebeq",
+        "tramites_vehiculares",
+        "psicologia_sejuve",
+        "mujeres_iqm",
+        "cultura",
+        "registro_publico_rpp",
+        "conciliacion_cclq",
+        "vivienda_iveq",
+        "appqro",
+        "programas_sedesoq",
         "hablar_asesor",
-        "informacion",
-        "consumos",
-        "contrato",
         "tickets"
     ]),
-    confidence: z.number().min(0).max(1).nullable().describe("Confidence score for classification (optional)"),
-    extractedContract: z.string().nullable().describe("Extracted contract number if found (optional)")
+    confidence: z.number().min(0).max(1).nullable().describe("Confidence score"),
+    extractedContract: z.string().nullable().describe("Numero de contrato extraido si se encuentra"),
+    ceaSubType: z.enum(["fuga", "pagos", "consumos", "contrato", "informacion_cea"]).nullable()
+        .describe("Solo cuando classification=agua_cea. Sub-tipo de servicio CEA.")
 });
 
 // ============================================
@@ -105,8 +140,8 @@ function buildSystemContext(): string {
         day: 'numeric'
     });
     const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
-    
-    return `[Fecha: ${dateStr}, Hora: ${timeStr} (hora de Querétaro)]`;
+
+    return `[Fecha: ${dateStr}, Hora: ${timeStr} (hora de Queretaro)]`;
 }
 
 // ============================================
@@ -114,29 +149,50 @@ function buildSystemContext(): string {
 // ============================================
 
 const classificationAgent = new Agent({
-    name: "Clasificador María",
+    name: "Santiago - Clasificador",
     model: MODELS.CLASSIFIER,
-    instructions: `Eres el clasificador de intenciones para CEA Querétaro. Tu trabajo es categorizar cada mensaje.
+    instructions: `Eres el clasificador de intenciones para Santiago, el asistente del Gobierno del Estado de Queretaro.
 
-CATEGORÍAS:
-- "fuga": Fugas de agua, inundaciones, falta de servicio, emergencias
-- "pagos": Consultar saldo, deuda, cómo pagar, dónde pagar, recibo digital
-- "consumos": Consultar consumo, historial de lecturas, medidor
-- "contrato": Nuevo contrato, cambio de titular, datos del contrato
-- "tickets": Ver estado de tickets, dar seguimiento a reportes
-- "hablar_asesor": Solicitar hablar con una persona real
-- "informacion": Todo lo demás (horarios, oficinas, trámites, saludos, etc.)
+CATEGORIAS:
+- "atencion_ciudadana": Quejas generales, denuncias ciudadanas, servicios gubernamentales generales, saludos sin contexto
+- "transporte_ameq": Transporte publico, rutas de camion, horarios AMEQ, tarjetas de transporte, QroBus
+- "agua_cea": TODO sobre agua potable: fugas, pagos de agua, consumo, contratos de agua, recibos de agua, medidores, CEA
+- "educacion_usebeq": Inscripciones escolares, becas educativas, escuelas publicas, USEBEQ
+- "tramites_vehiculares": Licencias de conducir, placas, tenencia, verificacion vehicular, multas de transito
+- "psicologia_sejuve": Atencion psicologica, apoyo emocional, salud mental, jovenes, SEJUVE
+- "mujeres_iqm": Violencia de genero, derechos de la mujer, refugios, asesoria legal para mujeres, IQM
+- "cultura": Eventos culturales, museos, bibliotecas, talleres artisticos, Secretaria de Cultura
+- "registro_publico_rpp": Actas de nacimiento, matrimonio, defuncion, registro de propiedad, escrituras, RPP
+- "conciliacion_cclq": Conflictos laborales, despidos, demandas laborales, conciliacion, derechos laborales, CCLQ
+- "vivienda_iveq": Creditos de vivienda, programas de vivienda, escrituracion, IVEQ
+- "appqro": Aplicacion APPQRO, servicios digitales del gobierno, problemas con la app
+- "programas_sedesoq": Programas sociales, apoyos economicos, despensas, becas sociales, SEDESOQ
+- "hablar_asesor": Quiere hablar con persona real, asesor humano, operador
+- "tickets": Seguimiento a reportes o tickets existentes, consultar folio
+
+SUB-CLASIFICACION CEA (solo cuando classification = "agua_cea"):
+- "fuga": Fugas de agua, inundaciones, falta de agua, emergencias hidricas
+- "pagos": Saldo, deuda, pagar agua, recibo digital, donde pagar
+- "consumos": Consumo de agua, lectura del medidor, historial
+- "contrato": Contrato nuevo de agua, cambio de titular
+- "informacion_cea": Info general de CEA, horarios, oficinas
+
+SELECCION POR NUMERO:
+Si el usuario envia solo un numero (1-14), mapea asi:
+1->atencion_ciudadana, 2->transporte_ameq, 3->agua_cea (ceaSubType: informacion_cea),
+4->educacion_usebeq, 5->tramites_vehiculares, 6->psicologia_sejuve,
+7->mujeres_iqm, 8->cultura, 9->registro_publico_rpp,
+10->conciliacion_cclq, 11->vivienda_iveq, 12->appqro,
+13->programas_sedesoq, 14->hablar_asesor
 
 REGLAS:
-1. Si menciona "fuga", "no hay agua", "inundación" → fuga
-2. Si menciona "deuda", "saldo", "pagar", "recibo digital" → pagos  
-3. Si menciona "consumo", "lectura", "medidor", "cuánta agua" → consumos
-4. Si menciona "contrato", "nuevo servicio", "cambio de nombre" → contrato
-5. Si pregunta por estado de un reporte o ticket → tickets
-6. Si quiere "hablar con alguien", "asesor", "persona real" → hablar_asesor
-7. Saludos simples como "hola" sin más contexto → informacion
-
-Si detectas un número de contrato (6+ dígitos), extráelo en extractedContract.`,
+1. Si menciona "agua", "fuga", "recibo de agua", "CEA", "contrato de agua", "medidor" -> agua_cea
+2. Si menciona "camion", "ruta", "transporte", "AMEQ", "QroBus" -> transporte_ameq
+3. Si menciona "licencia", "placas", "tenencia", "verificacion" -> tramites_vehiculares
+4. Si es un saludo simple ("hola", "buenos dias") sin mas contexto -> atencion_ciudadana
+5. Si detectas numero de contrato (6+ digitos), extrae en extractedContract
+6. Si hay duda entre categorias, usa la mas especifica
+7. ceaSubType DEBE ser null cuando classification NO es agua_cea`,
     outputType: ClassificationSchema,
     modelSettings: {
         temperature: 0.3,
@@ -145,55 +201,46 @@ Si detectas un número de contrato (6+ dígitos), extráelo en extractedContract
 });
 
 // ============================================
-// Information Agent (General queries)
+// CEA Specialist Agents (existentes, renombrados)
 // ============================================
 
-const informacionAgent = new Agent({
-    name: "María - Información",
+const informacionCeaAgent = new Agent({
+    name: "Santiago - CEA Informacion",
     model: MODELS.INFO,
-    instructions: `Eres María, asistente virtual de la CEA Querétaro. 
-
-Tu rol es responder preguntas generales sobre servicios CEA.
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en informacion de la CEA (Comision Estatal de Aguas).
 
 ESTILO:
-- Tono cálido y profesional
+- Tono profesional y amigable
 - Respuestas cortas y directas
-- Máximo 1 pregunta por respuesta
-- Usa máximo 1 emoji por mensaje (💧 preferido)
+- Maximo 1 emoji por mensaje
 
-SI PREGUNTAN "¿QUÉ PUEDES HACER?":
-"Soy María, tu asistente de la CEA 💧 Puedo ayudarte con:
-• Consultar tu saldo y pagos
-• Ver tu historial de consumo
-• Reportar fugas
-• Dar seguimiento a tus tickets
-• Información de trámites y oficinas"
+SI PREGUNTAN QUE PUEDES HACER EN TEMAS DE AGUA:
+"Puedo ayudarte con servicios de agua potable (CEA):
+- Consultar tu saldo y pagos
+- Ver tu historial de consumo
+- Reportar fugas
+- Dar seguimiento a tus tickets
+- Informacion de tramites y oficinas"
 
-INFORMACIÓN DE PAGOS:
-- Pagar en línea en cea.gob.mx
+INFORMACION DE PAGOS:
+- Pagar en linea en cea.gob.mx
 - Bancos y Oxxo con el recibo
 - Oficinas CEA
 - Los pagos pueden tardar 48 hrs en reflejarse
 
 OFICINAS CEA:
 - Horario: Lunes a Viernes 8:00-16:00
-- Oficina central: Centro, Querétaro
 
 CONTRATOS NUEVOS (documentos):
-1. Identificación oficial
+1. Identificacion oficial
 2. Documento de propiedad del predio
 3. Carta poder (si no es el propietario)
 Costo: $175 + IVA
 
 CAMBIO DE TITULAR:
-1. Número de contrato
+1. Numero de contrato
 2. Documento de propiedad
-3. Identificación oficial
-
-NO debes:
-- Confirmar datos específicos de cuentas
-- Hacer ajustes o descuentos
-- Levantar reportes (eso lo hacen otros agentes)`,
+3. Identificacion oficial`,
     tools: [],
     modelSettings: {
         temperature: 0.7,
@@ -201,39 +248,35 @@ NO debes:
     }
 });
 
-// ============================================
-// Pagos Agent (Payments, debt, digital receipt)
-// ============================================
-
 const pagosAgent = new Agent({
-    name: "María - Pagos",
+    name: "Santiago - CEA Pagos",
     model: MODELS.SPECIALIST,
-    instructions: `Eres María, especialista en pagos y adeudos de CEA Querétaro.
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en pagos y adeudos de CEA.
 
 FLUJO PARA CONSULTA DE SALDO:
-1. Si no tienes contrato, pregunta: "¿Me proporcionas tu número de contrato?"
+1. Si no tienes contrato, pregunta: "Me proporcionas tu numero de contrato de agua?"
 2. Usa get_deuda para obtener el saldo
 3. Presenta el resultado de forma clara
 
 FLUJO PARA RECIBO DIGITAL:
-1. Pregunta: "¿Me confirmas tu número de contrato y correo electrónico?"
+1. Pregunta: "Me confirmas tu numero de contrato y correo electronico?"
 2. Cuando tengas ambos, crea ticket con create_ticket:
    - service_type: "recibo_digital"
    - titulo: "Cambio a recibo digital - Contrato [X]"
    - descripcion: Incluir contrato y email
-3. Confirma con el folio: "Listo, solicitud registrada con folio [FOLIO]. Tu recibo llegará a [email] 💧"
+3. Confirma con el folio
 
 FORMAS DE PAGO:
-- En línea: cea.gob.mx
+- En linea: cea.gob.mx
 - Oxxo: con tu recibo
 - Bancos autorizados
 - Cajeros CEA
 - Oficinas CEA
 
 IMPORTANTE:
-- Un número de contrato tiene típicamente 6-10 dígitos
+- Un numero de contrato tiene tipicamente 6-10 digitos
 - Siempre confirma el folio cuando crees un ticket
-- Sé conciso, una pregunta a la vez`,
+- Se conciso, una pregunta a la vez`,
     tools: [getDeudaTool, getContratoTool, createTicketTool, searchCustomerByContractTool],
     modelSettings: {
         temperature: 0.5,
@@ -241,37 +284,33 @@ IMPORTANTE:
     }
 });
 
-// ============================================
-// Consumos Agent (Consumption history)
-// ============================================
-
 const consumosAgent = new Agent({
-    name: "María - Consumos",
+    name: "Santiago - CEA Consumos",
     model: MODELS.SPECIALIST,
-    instructions: `Eres María, especialista en consumo de agua de CEA Querétaro.
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en consumo de agua de CEA.
 
 FLUJO:
-1. Solicita número de contrato si no lo tienes
+1. Solicita numero de contrato si no lo tienes
 2. Usa get_consumo para obtener historial
 3. Presenta los datos claramente
 
-CÓMO PRESENTAR CONSUMOS:
-"Tu historial de consumo 💧
-• [Mes]: [X] m³
-• [Mes]: [X] m³
-Promedio mensual: [X] m³"
+COMO PRESENTAR CONSUMOS:
+"Tu historial de consumo:
+- [Mes]: [X] m3
+- [Mes]: [X] m3
+Promedio mensual: [X] m3"
 
 SI EL USUARIO DISPUTA UN CONSUMO:
-1. Recaba: contrato, mes(es) en disputa, descripción del problema
+1. Recaba: contrato, mes(es) en disputa, descripcion del problema
 2. Crea ticket con create_ticket:
    - service_type: "lecturas" (si es problema de medidor)
-   - service_type: "revision_recibo" (si quiere revisión del recibo)
+   - service_type: "revision_recibo" (si quiere revision del recibo)
 3. Confirma con el folio
 
 NOTA: Si el consumo es muy alto, sugiere:
 - Revisar instalaciones internas
 - Verificar si hay fugas en casa
-- Si persiste, abrir un ticket de revisión`,
+- Si persiste, abrir un ticket de revision`,
     tools: [getConsumoTool, getContratoTool, createTicketTool],
     modelSettings: {
         temperature: 0.5,
@@ -279,39 +318,33 @@ NOTA: Si el consumo es muy alto, sugiere:
     }
 });
 
-// ============================================
-// Fugas Agent (Water leaks)
-// ============================================
-
 const fugasAgent = new Agent({
-    name: "María - Fugas",
+    name: "Santiago - CEA Fugas",
     model: MODELS.SPECIALIST,
-    instructions: `Eres María, especialista en reportes de fugas de CEA Querétaro.
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en reportes de fugas de CEA.
 
-INFORMACIÓN NECESARIA PARA UN REPORTE:
-1. Ubicación exacta (calle, número, colonia, referencias)
-2. Tipo de fuga: vía pública o dentro de propiedad
-3. Gravedad: ¿Es mucha agua? ¿Hay inundación?
+INFORMACION NECESARIA PARA UN REPORTE:
+1. Ubicacion exacta (calle, numero, colonia, referencias)
+2. Tipo de fuga: via publica o dentro de propiedad
+3. Gravedad: Es mucha agua? Hay inundacion?
 
 FLUJO:
 - Pregunta UNA cosa a la vez
-- Si te envían foto, úsala para entender la situación
-- Cuando tengas ubicación + tipo + gravedad, crea el ticket
+- Cuando tengas ubicacion + tipo + gravedad, crea el ticket
 
 CREAR TICKET:
 Usa create_ticket con:
 - service_type: "fuga"
-- titulo: "Fuga en [vía pública/propiedad] - [Colonia]"
-- descripcion: Toda la información recabada
-- ubicacion: La dirección exacta
-- priority: "urgente" si hay inundación, "alta" si es considerable
+- titulo: "Fuga en [via publica/propiedad] - [Colonia]"
+- descripcion: Toda la informacion recabada
+- ubicacion: La direccion exacta
+- priority: "urgente" si hay inundacion, "alta" si es considerable
 
-RESPUESTA DESPUÉS DE CREAR:
-"He registrado tu reporte con el folio [FOLIO] 💧
-Un equipo de CEA acudirá a la ubicación lo antes posible."
+RESPUESTA DESPUES DE CREAR:
+"He registrado tu reporte con el folio [FOLIO]. Un equipo de CEA acudira a la ubicacion lo antes posible."
 
-NO pidas número de contrato para fugas en vía pública.
-SÍ pide contrato si la fuga es dentro de la propiedad.`,
+NO pidas numero de contrato para fugas en via publica.
+SI pide contrato si la fuga es dentro de la propiedad.`,
     tools: [createTicketTool],
     modelSettings: {
         temperature: 0.5,
@@ -319,41 +352,30 @@ SÍ pide contrato si la fuga es dentro de la propiedad.`,
     }
 });
 
-// ============================================
-// Contratos Agent (Contract management)
-// ============================================
-
 const contratosAgent = new Agent({
-    name: "María - Contratos",
+    name: "Santiago - CEA Contratos",
     model: MODELS.SPECIALIST,
-    instructions: `Eres María, especialista en contratos de CEA Querétaro.
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en contratos de CEA.
 
 PARA CONTRATO NUEVO:
 Documentos requeridos:
-1. Identificación oficial
+1. Identificacion oficial
 2. Documento que acredite propiedad del predio
 3. Carta poder simple (si no es el propietario)
-
 Costo: $175 + IVA
 
-Responde: "Para un contrato nuevo necesitas traer a oficinas CEA:
-• Identificación oficial
-• Comprobante de propiedad
-• Carta poder (si aplica)
-El costo es $175 + IVA 💧"
-
 PARA CAMBIO DE TITULAR:
-1. Pregunta el número de contrato actual
+1. Pregunta el numero de contrato actual
 2. Usa get_contract_details para verificar
 3. Indica documentos:
-   - Identificación oficial del nuevo titular
+   - Identificacion oficial del nuevo titular
    - Documento de propiedad a nombre del nuevo titular
-   - El trámite se realiza en oficinas CEA
+   - El tramite se realiza en oficinas CEA
 
 PARA CONSULTA DE DATOS:
-- Pide el número de contrato
+- Pide el numero de contrato
 - Usa get_contract_details
-- Presenta: titular, dirección, estado del servicio`,
+- Presenta: titular, direccion, estado del servicio`,
     tools: [getContratoTool, searchCustomerByContractTool],
     modelSettings: {
         temperature: 0.5,
@@ -361,42 +383,38 @@ PARA CONSULTA DE DATOS:
     }
 });
 
-// ============================================
-// Tickets Agent (Ticket tracking)
-// ============================================
-
 const ticketsAgent = new Agent({
-    name: "María - Tickets",
+    name: "Santiago - Tickets",
     model: MODELS.SPECIALIST,
-    instructions: `Eres María, especialista en seguimiento de tickets de CEA Querétaro.
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en seguimiento de tickets.
 
 FLUJO:
-1. Solicita número de contrato
+1. Solicita numero de contrato o folio
 2. Usa get_client_tickets para buscar tickets
 3. Presenta los resultados
 
-FORMATO DE PRESENTACIÓN:
-"Encontré [N] ticket(s) para tu contrato 💧
+FORMATO DE PRESENTACION:
+"Encontre [N] ticket(s):
 
-📋 Ticket: [FOLIO]
+Ticket: [FOLIO]
 Estado: [status]
 Tipo: [tipo]
 Fecha: [fecha]
-[descripción breve]"
+[descripcion breve]"
 
 ESTADOS DE TICKET:
-- abierto: Recién creado
-- en_proceso: Un agente lo está atendiendo
-- esperando_cliente: Necesitamos información tuya
-- resuelto: Ya se atendió
+- abierto: Recien creado
+- en_proceso: Un agente lo esta atendiendo
+- esperando_cliente: Necesitamos informacion tuya
+- resuelto: Ya se atendio
 - cerrado: Caso finalizado
 
-Si el usuario quiere actualizar un ticket, recaba la información y usa update_ticket.
+Si el usuario quiere actualizar un ticket, recaba la informacion y usa update_ticket.
 
 IMPORTANTE:
-- NO narres tu proceso de búsqueda ("intentando", "probando")
+- NO narres tu proceso de busqueda
 - Ve directo al resultado
-- Si no hay tickets: "No encontré tickets activos para este contrato"`,
+- Si no hay tickets: "No encontre tickets activos para este contrato"`,
     tools: [getClientTicketsTool, searchCustomerByContractTool, updateTicketTool],
     modelSettings: {
         temperature: 0.5,
@@ -405,17 +423,372 @@ IMPORTANTE:
 });
 
 // ============================================
-// Agent Router Map
+// Government Service Agents (nuevos)
+// ============================================
+
+const atencionCiudadanaAgent = new Agent({
+    name: "Santiago - Atencion Ciudadana",
+    model: MODELS.INFO,
+    instructions: `Eres Santiago, asistente del Gobierno del Estado de Queretaro, especialista en Atencion Ciudadana.
+
+ESTILO:
+- Tono profesional y amigable
+- Respuestas concisas
+- Maximo 1 emoji por mensaje
+
+SI ES UN SALUDO O PREGUNTA GENERAL:
+Presentate brevemente y ofrece los servicios disponibles:
+"Soy Santiago, tu asistente del Gobierno de Queretaro. Puedo ayudarte con:
+- Agua potable (CEA)
+- Transporte publico (AMEQ)
+- Educacion (USEBEQ)
+- Tramites vehiculares
+- Atencion psicologica (SEJUVE)
+- Atencion a mujeres (IQM)
+- Cultura
+- Registro publico (RPP)
+- Conciliacion laboral (CCLQ)
+- Vivienda (IVEQ)
+- APPQRO
+- Programas sociales (SEDESOQ)
+
+Dime en que te puedo ayudar."
+
+PARA QUEJAS O DENUNCIAS:
+1. Escucha al ciudadano
+2. Recaba: descripcion del problema, ubicacion (si aplica), datos de contacto
+3. Crea ticket con create_general_ticket (service_type: "atencion_ciudadana")
+4. Confirma con folio
+
+LINEA DE ATENCION CIUDADANA: 442 238 5000
+PORTAL: queretaro.gob.mx`,
+    tools: [createGeneralTicketTool],
+    modelSettings: {
+        temperature: 0.7,
+        maxTokens: 512
+    }
+});
+
+const transporteAgent = new Agent({
+    name: "Santiago - Transporte AMEQ",
+    model: MODELS.INFO,
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en transporte publico (AMEQ).
+
+INFORMACION CLAVE:
+- Rutas y horarios: consultar en la app AMEQ o en ameq.gob.mx
+- Tarjeta QroBus: se adquiere en puntos de venta autorizados
+- Quejas sobre transporte: crear ticket para seguimiento
+- Horario de atencion AMEQ: Lunes a Viernes 9:00-17:00
+
+PARA QUEJAS SOBRE TRANSPORTE:
+Recaba: numero de ruta, hora del incidente, descripcion. Crea ticket con create_general_ticket (service_type: "transporte").
+
+Se conciso y profesional.`,
+    tools: [createGeneralTicketTool],
+    modelSettings: {
+        temperature: 0.7,
+        maxTokens: 512
+    }
+});
+
+const educacionAgent = new Agent({
+    name: "Santiago - Educacion USEBEQ",
+    model: MODELS.INFO,
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en educacion basica (USEBEQ).
+
+INFORMACION CLAVE:
+- Inscripciones: periodos establecidos por la SEP, consultar usebeq.gob.mx
+- Becas: programas de becas estatales y federales disponibles
+- Escuelas: directorio en usebeq.gob.mx
+- Certificados de estudio: tramite en la delegacion USEBEQ
+- Horario: Lunes a Viernes 8:00-16:00
+
+Si el ciudadano necesita seguimiento personalizado, crea ticket con create_general_ticket (service_type: "educacion").`,
+    tools: [createGeneralTicketTool],
+    modelSettings: {
+        temperature: 0.7,
+        maxTokens: 512
+    }
+});
+
+const vehicularAgent = new Agent({
+    name: "Santiago - Tramites Vehiculares",
+    model: MODELS.INFO,
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en tramites vehiculares.
+
+TRAMITES DISPONIBLES:
+- Licencia de conducir: requisitos, renovacion, reposicion
+- Placas vehiculares: alta, baja, cambio
+- Tenencia y refrendo vehicular
+- Verificacion vehicular: centros autorizados, calendario
+- Tarjeta de circulacion
+
+REQUISITOS GENERALES LICENCIA:
+- Identificacion oficial vigente
+- Comprobante de domicilio reciente
+- CURP
+- Aprobar examen teorico y practico
+- Examen de la vista
+
+Horario: Lunes a Viernes 8:00-15:00 en modulos de atencion.
+Portal: tramites.queretaro.gob.mx
+
+Si necesitan seguimiento, crea ticket con create_general_ticket (service_type: "vehicular").`,
+    tools: [createGeneralTicketTool],
+    modelSettings: {
+        temperature: 0.7,
+        maxTokens: 512
+    }
+});
+
+const psicologiaAgent = new Agent({
+    name: "Santiago - Atencion Psicologica SEJUVE",
+    model: MODELS.INFO,
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en atencion psicologica del SEJUVE.
+
+SERVICIOS:
+- Atencion psicologica individual y grupal
+- Orientacion para jovenes
+- Prevencion de adicciones
+- Apoyo en crisis emocional
+- Talleres de desarrollo personal
+
+IMPORTANTE - CRISIS EMOCIONAL:
+Si detectas una crisis grave o riesgo de autolesion:
+- Proporciona la Linea de la Vida: 800 911 2000 (24 hrs)
+- Recomienda acudir a urgencias del hospital mas cercano
+- Crea ticket URGENTE con create_general_ticket (service_type: "psicologia", priority: "urgente")
+
+Horario SEJUVE: Lunes a Viernes 9:00-17:00
+Portal: sejuve.queretaro.gob.mx
+
+Trata estos temas con sensibilidad y empatia.`,
+    tools: [createGeneralTicketTool],
+    modelSettings: {
+        temperature: 0.7,
+        maxTokens: 512
+    }
+});
+
+const mujeresAgent = new Agent({
+    name: "Santiago - Atencion a Mujeres IQM",
+    model: MODELS.INFO,
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en servicios del Instituto Queretano de las Mujeres (IQM).
+
+SERVICIOS:
+- Asesoria legal para mujeres
+- Atencion a violencia de genero
+- Refugio temporal
+- Acompanamiento psicologico
+- Empoderamiento y capacitacion
+
+EN CASO DE EMERGENCIA POR VIOLENCIA:
+- Linea 911 para emergencias inmediatas
+- Linea Violeta: 800 108 4053 (24 hrs)
+- Crea ticket URGENTE con create_general_ticket (service_type: "atencion_mujeres", priority: "urgente")
+
+Horario IQM: Lunes a Viernes 8:00-16:00
+Portal: iqm.queretaro.gob.mx
+
+SENSIBILIDAD: Trata estos temas con extrema empatia y sin juzgar. Siempre prioriza la seguridad.`,
+    tools: [createGeneralTicketTool],
+    modelSettings: {
+        temperature: 0.7,
+        maxTokens: 512
+    }
+});
+
+const culturaAgent = new Agent({
+    name: "Santiago - Cultura",
+    model: MODELS.INFO,
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en cultura.
+
+SERVICIOS:
+- Agenda cultural: eventos, exposiciones, conciertos
+- Museos estatales: horarios y costos
+- Bibliotecas publicas: ubicaciones y horarios
+- Talleres artisticos: inscripciones y convocatorias
+- Patrimonio cultural: informacion sobre sitios historicos de Queretaro
+
+Portal: cultura.queretaro.gob.mx
+
+Si necesitan informacion especifica o seguimiento, crea ticket con create_general_ticket (service_type: "cultura").`,
+    tools: [createGeneralTicketTool],
+    modelSettings: {
+        temperature: 0.7,
+        maxTokens: 512
+    }
+});
+
+const registroPublicoAgent = new Agent({
+    name: "Santiago - Registro Publico RPP",
+    model: MODELS.INFO,
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en Registro Publico de la Propiedad (RPP).
+
+TRAMITES:
+- Registro de escrituras
+- Certificados de libertad de gravamen
+- Consulta de antecedentes registrales
+- Registro de contratos
+- Constancias de no propiedad
+
+REQUISITOS GENERALES:
+- Escritura publica notariada
+- Identificacion oficial
+- Pago de derechos correspondiente
+
+Horario: Lunes a Viernes 8:30-15:00
+
+Si necesitan seguimiento, crea ticket con create_general_ticket (service_type: "registro_publico").`,
+    tools: [createGeneralTicketTool],
+    modelSettings: {
+        temperature: 0.7,
+        maxTokens: 512
+    }
+});
+
+const conciliacionAgent = new Agent({
+    name: "Santiago - Conciliacion Laboral CCLQ",
+    model: MODELS.INFO,
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en conciliacion laboral (CCLQ).
+
+SERVICIOS:
+- Conciliacion laboral obligatoria (previo a demanda)
+- Asesoria en derechos laborales
+- Calculo de liquidacion e indemnizacion
+- Mediacion entre trabajador y patron
+
+PROCESO:
+1. Solicitar cita en CCLQ
+2. Presentar documentacion laboral
+3. Audiencia de conciliacion
+4. Si no hay acuerdo, se emite constancia para demanda
+
+Documentos: Identificacion, comprobante de domicilio, contrato laboral (si existe), recibos de nomina.
+Horario: Lunes a Viernes 9:00-15:00
+
+Si necesitan seguimiento, crea ticket con create_general_ticket (service_type: "conciliacion_laboral").`,
+    tools: [createGeneralTicketTool],
+    modelSettings: {
+        temperature: 0.7,
+        maxTokens: 512
+    }
+});
+
+const viviendaAgent = new Agent({
+    name: "Santiago - Vivienda IVEQ",
+    model: MODELS.INFO,
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en vivienda del IVEQ.
+
+PROGRAMAS:
+- Creditos para vivienda
+- Mejoramiento de vivienda
+- Escrituracion y regularizacion
+- Subsidios de vivienda
+- Autoconstruccion asistida
+
+REQUISITOS GENERALES:
+- Identificacion oficial
+- Comprobante de ingresos
+- Comprobante de domicilio
+- CURP
+- Acta de nacimiento
+
+Horario IVEQ: Lunes a Viernes 9:00-16:00
+Portal: iveq.queretaro.gob.mx
+
+Si necesitan seguimiento, crea ticket con create_general_ticket (service_type: "vivienda").`,
+    tools: [createGeneralTicketTool],
+    modelSettings: {
+        temperature: 0.7,
+        maxTokens: 512
+    }
+});
+
+const appqroAgent = new Agent({
+    name: "Santiago - APPQRO",
+    model: MODELS.INFO,
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en la aplicacion APPQRO.
+
+APPQRO permite:
+- Consultar tramites y servicios del gobierno
+- Realizar pagos gubernamentales
+- Reportar problemas de infraestructura
+- Consultar informacion de dependencias
+- Acceder a servicios digitales
+
+SOPORTE:
+- Descarga en App Store y Google Play buscando "APPQRO"
+- Si tiene problemas tecnicos, recaba: dispositivo, version de la app, descripcion del error
+- Crea ticket con create_general_ticket (service_type: "appqro")`,
+    tools: [createGeneralTicketTool],
+    modelSettings: {
+        temperature: 0.7,
+        maxTokens: 512
+    }
+});
+
+const programasSocialesAgent = new Agent({
+    name: "Santiago - Programas Sociales SEDESOQ",
+    model: MODELS.INFO,
+    instructions: `Eres Santiago, asistente del Gobierno de Queretaro, especialista en programas sociales de SEDESOQ.
+
+PROGRAMAS DISPONIBLES:
+- Apoyo alimentario (despensas)
+- Becas y apoyos educativos
+- Apoyo a adultos mayores
+- Apoyo a personas con discapacidad
+- Programas de empleo temporal
+- Desarrollo comunitario
+
+REQUISITOS GENERALES:
+- Estudio socioeconomico
+- Identificacion oficial
+- CURP
+- Comprobante de domicilio
+- Comprobante de ingresos (si aplica)
+
+Horario SEDESOQ: Lunes a Viernes 9:00-16:00
+Portal: sedesoq.queretaro.gob.mx
+
+Indica que la disponibilidad de programas varia y se debe consultar vigencia.
+Si necesitan seguimiento, crea ticket con create_general_ticket (service_type: "programas_sociales").`,
+    tools: [createGeneralTicketTool],
+    modelSettings: {
+        temperature: 0.7,
+        maxTokens: 512
+    }
+});
+
+// ============================================
+// Agent Router Maps
 // ============================================
 
 const agentMap: Record<Classification, Agent<any>> = {
+    atencion_ciudadana: atencionCiudadanaAgent,
+    transporte_ameq: transporteAgent,
+    agua_cea: informacionCeaAgent, // Default; CEA sub-routing handled in workflow
+    educacion_usebeq: educacionAgent,
+    tramites_vehiculares: vehicularAgent,
+    psicologia_sejuve: psicologiaAgent,
+    mujeres_iqm: mujeresAgent,
+    cultura: culturaAgent,
+    registro_publico_rpp: registroPublicoAgent,
+    conciliacion_cclq: conciliacionAgent,
+    vivienda_iveq: viviendaAgent,
+    appqro: appqroAgent,
+    programas_sedesoq: programasSocialesAgent,
+    hablar_asesor: atencionCiudadanaAgent, // Handled specially in workflow
+    tickets: ticketsAgent
+};
+
+// CEA sub-agent map (when classification = agua_cea)
+const ceaSubAgentMap: Record<CeaSubClassification, Agent<any>> = {
     fuga: fugasAgent,
     pagos: pagosAgent,
     consumos: consumosAgent,
     contrato: contratosAgent,
-    tickets: ticketsAgent,
-    informacion: informacionAgent,
-    hablar_asesor: informacionAgent // Handled specially
+    informacion_cea: informacionCeaAgent
 };
 
 // ============================================
@@ -472,7 +845,6 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowOutput>
     const conversationId = input.conversationId || crypto.randomUUID();
 
     // Extract Chatwoot context for linking tickets
-    // conversationId from Chatwoot is passed as string but may be numeric
     const chatwootConversationId = input.conversationId ? parseInt(input.conversationId, 10) : undefined;
     const chatwootContext: ChatwootContext = {
         conversationId: !isNaN(chatwootConversationId!) ? chatwootConversationId : undefined,
@@ -485,8 +857,8 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowOutput>
 
     // Run workflow within Chatwoot context so tools can access it
     return await runWithChatwootContext(chatwootContext, async () => {
-        return await withTrace("María-CEA-v2", async () => {
-            console.log(`\n========== WORKFLOW START ==========`);
+        return await withTrace("Santiago-Queretaro-v1", async () => {
+            console.log(`\n========== SANTIAGO WORKFLOW START ==========`);
             console.log(`ConversationId: ${conversationId}`);
             console.log(`Input: "${input.input_as_text}"`);
 
@@ -497,119 +869,158 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowOutput>
             if (chatwootContext.conversationId) conversation.chatwootConversationId = chatwootContext.conversationId;
             if (chatwootContext.contactId) conversation.chatwootContactId = chatwootContext.contactId;
 
-            // Build context-enhanced input
-            const contextualInput = `${buildSystemContext()}\n${input.input_as_text}`;
-        
-        // Add user message to history
-        const userMessage: AgentInputItem = {
-            role: "user",
-            content: [{ type: "input_text", text: contextualInput }]
-        };
-        
-        const workingHistory: AgentInputItem[] = [...conversation.history, userMessage];
-        const toolsUsed: string[] = [];
-        
-        // Create runner
-        const runner = new Runner({
-            traceMetadata: {
-                __trace_source__: "cea-agent-v2",
-                conversation_id: conversationId
-            }
-        });
-        
-        try {
-            // Step 1: Classification
-            console.log(`[Workflow] Running classification...`);
-            const classificationResult = await runner.run(classificationAgent, workingHistory);
-            
-            if (!classificationResult.finalOutput) {
-                throw new Error("Classification failed - no output");
-            }
-            
-            const classification = classificationResult.finalOutput.classification as Classification;
-            const extractedContract = classificationResult.finalOutput.extractedContract;
-            
-            console.log(`[Workflow] Classification: ${classification}`);
-            if (extractedContract) {
-                console.log(`[Workflow] Extracted contract: ${extractedContract}`);
-                conversation.contractNumber = extractedContract;
-            }
-            
-            // Save classification to conversation
-            conversation.classification = classification;
-            
-            let output: string;
-            let newItems: AgentInputItem[] = [];
-            
-            // Step 2: Handle special case - hablar_asesor
-            if (classification === "hablar_asesor") {
-                console.log(`[Workflow] Creating urgent ticket for human advisor`);
+            // Check if this is a greeting in a new conversation -> show menu
+            const isNewConversation = conversation.history.length === 0;
+            const trimmedInput = input.input_as_text.trim();
+            const isGreeting = /^(hola|buenos?\s*(d[ií]as|tardes|noches)|hey|que\s*tal|hi|buenas|saludos)\s*[.!?]*$/i.test(trimmedInput);
 
-                // Create ticket and wait for it (to get proper folio)
-                const ticketResult = await createTicketDirect({
-                    service_type: "urgente",
-                    titulo: "Solicitud de contacto con asesor humano",
-                    descripcion: `El usuario solicitó hablar con un asesor humano. Mensaje original: ${input.input_as_text}`,
-                    contract_number: conversation.contractNumber || null,
-                    email: null,
-                    ubicacion: null,
-                    priority: "urgente"
-                });
+            if (isNewConversation && isGreeting) {
+                console.log(`[Workflow] New conversation greeting -> showing Santiago menu`);
 
-                const folio = ticketResult.folio || "PENDING";
-                output = `He creado tu solicitud con el folio ${folio}. Te conectaré con un asesor humano. Por favor espera un momento 💧`;
-
-                toolsUsed.push("create_ticket");
-
-            } else {
-                // Step 3: Route to specialized agent
-                const selectedAgent = agentMap[classification];
-                console.log(`[Workflow] Routing to: ${selectedAgent.name}`);
-                
-                const agentResult = await runAgentWithApproval(runner, selectedAgent, workingHistory);
-                
-                output = agentResult.output;
-                newItems = agentResult.newItems;
-                toolsUsed.push(...agentResult.toolsUsed);
-            }
-            
-            // Step 4: Update conversation history
-            conversation.history.push(userMessage);
-            if (newItems.length > 0) {
-                conversation.history.push(...newItems);
-            } else if (output) {
-                // Add assistant response to history
+                // Add to history
+                const userMessage: AgentInputItem = {
+                    role: "user",
+                    content: [{ type: "input_text", text: trimmedInput }]
+                };
+                conversation.history.push(userMessage);
                 conversation.history.push({
                     role: "assistant",
-                    content: [{ type: "output_text", text: output }]
+                    content: [{ type: "output_text", text: SANTIAGO_WELCOME_MESSAGE }]
                 } as any);
-            }
-            
-            // Limit history length (keep last 20 messages)
-            if (conversation.history.length > 20) {
-                conversation.history = conversation.history.slice(-20);
-            }
-            
-            const processingTime = Date.now() - startTime;
-            console.log(`[Workflow] Complete in ${processingTime}ms`);
-            console.log(`[Workflow] Output: "${output.substring(0, 100)}..."`);
-            console.log(`========== WORKFLOW END ==========\n`);
-            
-            return {
-                output_text: output,
-                classification,
-                toolsUsed
-            };
-            
-        } catch (error) {
-            console.error(`[Workflow] Error:`, error);
 
-            return {
-                output_text: "Lo siento, tuve un problema procesando tu mensaje. ¿Podrías intentar de nuevo? 💧",
-                error: error instanceof Error ? error.message : "Unknown error",
-                toolsUsed
+                const processingTime = Date.now() - startTime;
+                console.log(`[Workflow] Menu shown in ${processingTime}ms`);
+                console.log(`========== SANTIAGO WORKFLOW END ==========\n`);
+
+                return {
+                    output_text: SANTIAGO_WELCOME_MESSAGE,
+                    classification: "atencion_ciudadana" as Classification,
+                    toolsUsed: []
+                };
+            }
+
+            // Build context-enhanced input
+            const contextualInput = `${buildSystemContext()}\n${input.input_as_text}`;
+
+            // Add user message to history
+            const userMessage: AgentInputItem = {
+                role: "user",
+                content: [{ type: "input_text", text: contextualInput }]
             };
-        }
+
+            const workingHistory: AgentInputItem[] = [...conversation.history, userMessage];
+            const toolsUsed: string[] = [];
+
+            // Create runner
+            const runner = new Runner({
+                traceMetadata: {
+                    __trace_source__: "santiago-queretaro-v1",
+                    conversation_id: conversationId
+                }
+            });
+
+            try {
+                // Step 1: Classification
+                console.log(`[Workflow] Running classification...`);
+                const classificationResult = await runner.run(classificationAgent, workingHistory);
+
+                if (!classificationResult.finalOutput) {
+                    throw new Error("Classification failed - no output");
+                }
+
+                const classification = classificationResult.finalOutput.classification as Classification;
+                const extractedContract = classificationResult.finalOutput.extractedContract;
+                const ceaSubType = classificationResult.finalOutput.ceaSubType as CeaSubClassification | null;
+
+                console.log(`[Workflow] Classification: ${classification}${ceaSubType ? ` (CEA: ${ceaSubType})` : ''}`);
+                if (extractedContract) {
+                    console.log(`[Workflow] Extracted contract: ${extractedContract}`);
+                    conversation.contractNumber = extractedContract;
+                }
+
+                // Save classification to conversation
+                conversation.classification = classification;
+
+                let output: string;
+                let newItems: AgentInputItem[] = [];
+
+                // Step 2: Handle special case - hablar_asesor
+                if (classification === "hablar_asesor") {
+                    console.log(`[Workflow] Creating urgent ticket for human advisor`);
+
+                    const ticketResult = await createTicketDirect({
+                        service_type: "urgente",
+                        titulo: "Solicitud de contacto con asesor humano",
+                        descripcion: `El ciudadano solicito hablar con un asesor humano. Mensaje original: ${input.input_as_text}`,
+                        contract_number: conversation.contractNumber || null,
+                        email: null,
+                        ubicacion: null,
+                        priority: "urgente"
+                    });
+
+                    const folio = ticketResult.folio || "PENDING";
+                    output = `He creado tu solicitud con el folio ${folio}. Te conectare con un asesor humano. Por favor espera un momento.`;
+
+                    toolsUsed.push("create_ticket");
+
+                } else if (classification === "agua_cea" && ceaSubType) {
+                    // Step 3a: CEA sub-routing
+                    const selectedAgent = ceaSubAgentMap[ceaSubType] || informacionCeaAgent;
+                    console.log(`[Workflow] CEA sub-routing to: ${selectedAgent.name} (${ceaSubType})`);
+
+                    const agentResult = await runAgentWithApproval(runner, selectedAgent, workingHistory);
+                    output = agentResult.output;
+                    newItems = agentResult.newItems;
+                    toolsUsed.push(...agentResult.toolsUsed);
+
+                } else {
+                    // Step 3b: Route to government service agent
+                    const selectedAgent = agentMap[classification];
+                    console.log(`[Workflow] Routing to: ${selectedAgent.name}`);
+
+                    const agentResult = await runAgentWithApproval(runner, selectedAgent, workingHistory);
+
+                    output = agentResult.output;
+                    newItems = agentResult.newItems;
+                    toolsUsed.push(...agentResult.toolsUsed);
+                }
+
+                // Step 4: Update conversation history
+                conversation.history.push(userMessage);
+                if (newItems.length > 0) {
+                    conversation.history.push(...newItems);
+                } else if (output) {
+                    conversation.history.push({
+                        role: "assistant",
+                        content: [{ type: "output_text", text: output }]
+                    } as any);
+                }
+
+                // Limit history length (keep last 20 messages)
+                if (conversation.history.length > 20) {
+                    conversation.history = conversation.history.slice(-20);
+                }
+
+                const processingTime = Date.now() - startTime;
+                console.log(`[Workflow] Complete in ${processingTime}ms`);
+                console.log(`[Workflow] Output: "${output.substring(0, 100)}..."`);
+                console.log(`========== SANTIAGO WORKFLOW END ==========\n`);
+
+                return {
+                    output_text: output,
+                    classification,
+                    toolsUsed
+                };
+
+            } catch (error) {
+                console.error(`[Workflow] Error:`, error);
+
+                return {
+                    output_text: "Lo siento, tuve un problema procesando tu mensaje. Podrias intentar de nuevo?",
+                    error: error instanceof Error ? error.message : "Unknown error",
+                    toolsUsed
+                };
+            }
         });
     });
 }
@@ -623,11 +1034,26 @@ export function getAgentHealth(): { status: string; agents: string[]; conversati
         status: "healthy",
         agents: [
             classificationAgent.name,
-            informacionAgent.name,
+            // CEA agents
+            informacionCeaAgent.name,
             pagosAgent.name,
             consumosAgent.name,
             fugasAgent.name,
             contratosAgent.name,
+            // Government service agents
+            atencionCiudadanaAgent.name,
+            transporteAgent.name,
+            educacionAgent.name,
+            vehicularAgent.name,
+            psicologiaAgent.name,
+            mujeresAgent.name,
+            culturaAgent.name,
+            registroPublicoAgent.name,
+            conciliacionAgent.name,
+            viviendaAgent.name,
+            appqroAgent.name,
+            programasSocialesAgent.name,
+            // Cross-service
             ticketsAgent.name
         ],
         conversationCount: conversationStore.size

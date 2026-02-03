@@ -1,7 +1,7 @@
 // ============================================
-// CEA Native Tools - Production Ready
+// Santiago - Gobierno de Querétaro Tools
 // ============================================
-// These are the critical tools that MUST be native for reliability
+// Native tools for reliability - CEA SOAP + Government-wide tickets
 
 import { config } from "dotenv";
 config(); // Load environment variables first
@@ -43,25 +43,54 @@ const PG_CONFIG = {
 const pgPool = new pg.Pool(PG_CONFIG);
 
 const TICKET_CODES: Record<TicketType, string> = {
+    // CEA (agua)
     fuga: "FUG",
     aclaraciones: "ACL",
     pagos: "PAG",
     lecturas: "LEC",
     revision_recibo: "REV",
     recibo_digital: "DIG",
-    urgente: "URG"
+    urgente: "URG",
+    // Gobierno de Querétaro
+    atencion_ciudadana: "ATC",
+    transporte: "TRA",
+    educacion: "EDU",
+    vehicular: "VEH",
+    psicologia: "PSI",
+    atencion_mujeres: "MUJ",
+    cultura: "CUL",
+    registro_publico: "RPP",
+    conciliacion_laboral: "CCL",
+    vivienda: "VIV",
+    appqro: "APP",
+    programas_sociales: "SOC",
+    general: "GEN"
 };
 
 // Map tool service types to PostgreSQL enum values (ticket_service_type)
-// Valid enum: clarifications, contract_change, payment, digital_receipt, report_reading, leak_report, receipt_review, human_agent, update_case, general
 const SERVICE_TYPE_MAP: Record<TicketType, string> = {
+    // CEA (agua)
     fuga: "leak_report",
     aclaraciones: "clarifications",
     pagos: "payment",
     lecturas: "report_reading",
     revision_recibo: "receipt_review",
     recibo_digital: "digital_receipt",
-    urgente: "human_agent"
+    urgente: "human_agent",
+    // Gobierno de Querétaro
+    atencion_ciudadana: "general",
+    transporte: "general",
+    educacion: "general",
+    vehicular: "general",
+    psicologia: "general",
+    atencion_mujeres: "general",
+    cultura: "general",
+    registro_publico: "general",
+    conciliacion_laboral: "general",
+    vivienda: "general",
+    appqro: "general",
+    programas_sociales: "general",
+    general: "general"
 };
 
 // Map priority values to PostgreSQL enum (ticket_priority: low, medium, high, urgent)
@@ -788,9 +817,9 @@ Usa para validar un contrato o conocer detalles del servicio.`,
  */
 export const createTicketTool = tool({
     name: "create_ticket",
-    description: `Crea un ticket en el sistema CEA y retorna el folio generado.
+    description: `Crea un ticket de CEA (agua) y retorna el folio generado.
 
-TIPOS DE TICKET:
+TIPOS DE TICKET CEA:
 - fuga: Reportes de fugas de agua
 - aclaraciones: Aclaraciones generales
 - pagos: Problemas con pagos
@@ -802,7 +831,7 @@ TIPOS DE TICKET:
 IMPORTANTE: Siempre incluye el folio en tu respuesta al usuario.`,
     parameters: z.object({
         service_type: z.enum(["fuga", "aclaraciones", "pagos", "lecturas", "revision_recibo", "recibo_digital", "urgente"])
-            .describe("Tipo de ticket"),
+            .describe("Tipo de ticket CEA"),
         titulo: z.string().describe("Título breve del ticket"),
         descripcion: z.string().describe("Descripción detallada del problema"),
         contract_number: z.string().nullable().describe("Número de contrato (si aplica)"),
@@ -813,6 +842,55 @@ IMPORTANTE: Siempre incluye el folio en tu respuesta al usuario.`,
     }),
     execute: async (input) => {
         return await createTicketDirect(input);
+    }
+});
+
+/**
+ * CREATE GENERAL TICKET - Creates a ticket for any government service (non-CEA)
+ */
+export const createGeneralTicketTool = tool({
+    name: "create_general_ticket",
+    description: `Crea un ticket de seguimiento para cualquier servicio del Gobierno de Querétaro.
+Usa esto cuando el ciudadano necesite que un departamento le dé seguimiento a su solicitud.
+
+TIPOS:
+- atencion_ciudadana: Quejas o solicitudes ciudadanas generales
+- transporte: Transporte público AMEQ
+- educacion: Educación básica USEBEQ
+- vehicular: Trámites vehiculares
+- psicologia: Atención psicológica SEJUVE
+- atencion_mujeres: Atención a mujeres IQM
+- cultura: Secretaría de Cultura
+- registro_publico: Registro Público RPP
+- conciliacion_laboral: Conciliación laboral CCLQ
+- vivienda: Instituto de Vivienda IVEQ
+- appqro: Soporte APPQRO
+- programas_sociales: Programas sociales SEDESOQ
+- general: Otros
+
+IMPORTANTE: Siempre incluye el folio en tu respuesta al ciudadano.`,
+    parameters: z.object({
+        service_type: z.enum([
+            "atencion_ciudadana", "transporte", "educacion", "vehicular",
+            "psicologia", "atencion_mujeres", "cultura", "registro_publico",
+            "conciliacion_laboral", "vivienda", "appqro", "programas_sociales", "general"
+        ]).describe("Tipo de servicio gubernamental"),
+        titulo: z.string().describe("Título breve del ticket"),
+        descripcion: z.string().describe("Descripción detallada de la solicitud"),
+        nombre_ciudadano: z.string().nullable().describe("Nombre del ciudadano (si lo proporciona)"),
+        email: z.string().nullable().describe("Email del ciudadano (si aplica)"),
+        priority: z.enum(["urgente", "alta", "media", "baja"]).default("media")
+            .describe("Prioridad del ticket")
+    }),
+    execute: async (input) => {
+        return await createTicketDirect({
+            service_type: input.service_type,
+            titulo: input.titulo,
+            descripcion: input.descripcion,
+            email: input.email,
+            priority: input.priority,
+            client_name: input.nombre_ciudadano
+        });
     }
 });
 
@@ -1019,6 +1097,7 @@ export const nativeTools = [
     getConsumoTool,
     getContratoTool,
     createTicketTool,
+    createGeneralTicketTool,
     getClientTicketsTool,
     searchCustomerByContractTool,
     updateTicketTool

@@ -1,5 +1,5 @@
 // ============================================
-// CEA Agent Server - Production Ready v2.0
+// Santiago - Gobierno de Queretaro Server v1.0
 // ============================================
 
 import express, { Request, Response, NextFunction } from "express";
@@ -83,7 +83,7 @@ app.get("/status", (req: Request, res: Response) => {
     
     res.json({
         status: "ok",
-        version: "2.0.0",
+        version: "1.0.0",
         environment: NODE_ENV,
         timestamp: new Date().toISOString(),
         uptime: Math.floor(process.uptime()),
@@ -342,17 +342,16 @@ app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
 
 const server = app.listen(PORT, () => {
     console.log(`
-╔════════════════════════════════════════════════════════╗
-║                CEA Agent Server v2.0                   ║
-╠════════════════════════════════════════════════════════╣
-║  🚀 Running on port ${PORT}                               ║
-║  📍 Health: http://localhost:${PORT}/health               ║
-║  📊 Status: http://localhost:${PORT}/status               ║
-║  💬 Chat:   http://localhost:${PORT}/api/chat             ║
-║  🔗 Webhook: http://localhost:${PORT}/webhook             ║
-╠════════════════════════════════════════════════════════╣
-║  Environment: ${NODE_ENV.padEnd(39)}║
-╚════════════════════════════════════════════════════════╝
+==========================================================
+  Santiago - Gobierno de Queretaro v1.0
+  Running on port ${PORT}
+  Health:  http://localhost:${PORT}/health
+  Status:  http://localhost:${PORT}/status
+  Chat:    http://localhost:${PORT}/api/chat
+  Webhook: http://localhost:${PORT}/webhook
+  Environment: ${NODE_ENV}
+  Agents: 19 (1 classifier + 5 CEA + 11 government + 1 tickets + 1 citizen)
+==========================================================
     `);
 });
 
