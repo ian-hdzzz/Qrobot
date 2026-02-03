@@ -37,30 +37,24 @@ const MODELS = {
 // Santiago Welcome Message
 // ============================================
 
-const SANTIAGO_WELCOME_MESSAGE = `Hola 👋
-Bienvenido al Gobierno de Querétaro, soy Santiago, tu asistente virtual.
+const SANTIAGO_WELCOME_MESSAGE = `Hola 👋 Soy *Santiago*, tu asistente del Gobierno del Estado de Querétaro.
 
-Ingresa el número de alguna de las siguientes opciones:
-👇
+Selecciona una opción o dime en qué te puedo ayudar:
 
-1. Atención Ciudadana 🤝
+1. Atención Ciudadana
 2. Transporte Público - AMEQ 🚌
 3. Servicios de Agua Potable - CEA 💧
-4. Educación Básica - USEBEQ 📚
+4. Educación Básica - USEBEQ
 5. Trámites Vehiculares 🚗
-6. Atención Psicológica - SEJUVE 👥
-7. Atención a Mujeres - IQM 👩
+6. Atención Psicológica - SEJUVE
+7. Atención a Mujeres - IQM
 8. Cultura - Secretaría de Cultura 🎭
-9. Registro Público - RPP 📋
-10. Conciliación Laboral - CCLQ ✍️
+9. Registro Público - RPP
+10. Conciliación Laboral - CCLQ
 11. Instituto de la Vivienda - IVEQ 🏠
 12. Atención APPQRO 📱
-13. Programas Sociales - SEDESOQ 🫶
-14. Hablar con un asesor 💬
-
-Si necesitas algún otro servicio, solo pídemelo 😊
-
-¿Cuál es tu opción?`;
+13. Programas Sociales - SEDESOQ
+14. Hablar con un asesor 💬`;
 
 // ============================================
 // Conversation Store (Production: use Redis)
