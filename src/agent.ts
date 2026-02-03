@@ -1146,15 +1146,44 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowOutput>
 
                     toolsUsed.push("create_ticket");
 
-                } else if (classification === "agua_cea" && ceaSubType) {
-                    // Step 3a: CEA sub-routing
-                    const selectedAgent = ceaSubAgentMap[ceaSubType] || informacionCeaAgent;
-                    console.log(`[Workflow] CEA sub-routing to: ${selectedAgent.name} (${ceaSubType})`);
+                } else if (classification === "agua_cea") {
+                    // Step 3a: CEA -> Redirect to dedicated WhatsApp agent
+                    console.log(`[Workflow] CEA -> Redirecting to WhatsApp contact +52 4424700013`);
 
-                    const agentResult = await runAgentWithApproval(runner, selectedAgent, workingHistory);
-                    output = agentResult.output;
-                    newItems = agentResult.newItems;
-                    toolsUsed.push(...agentResult.toolsUsed);
+                    output = `Para temas de agua potable, la CEA cuenta con un asistente especializado que te puede ayudar con pagos, reportes de fugas, consulta de consumos y mas.\n\nTe comparto el contacto para que puedas escribirle directamente:`;
+
+                    // Signal to server to send contact card
+                    const contactCard = {
+                        fullName: "CEA Querétaro - Agua Potable",
+                        phoneNumber: "+524424700013",
+                        organization: "Comisión Estatal de Aguas"
+                    };
+
+                    // Flow ends after redirect
+                    conversation.activeFlow = undefined;
+                    conversation.activeCeaSubType = undefined;
+
+                    // Update history and return early with contactCard
+                    conversation.history.push(userMessage);
+                    conversation.history.push({
+                        role: "assistant",
+                        content: [{ type: "output_text", text: output }]
+                    } as any);
+
+                    if (conversation.history.length > 20) {
+                        conversation.history = conversation.history.slice(-20);
+                    }
+
+                    const processingTime = Date.now() - startTime;
+                    console.log(`[Workflow] CEA redirect complete in ${processingTime}ms`);
+                    console.log(`========== SANTIAGO WORKFLOW END ==========\n`);
+
+                    return {
+                        output_text: output,
+                        classification,
+                        toolsUsed,
+                        contactCard
+                    };
 
                 } else {
                     // Step 3b: Route to government service agent

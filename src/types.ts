@@ -19,6 +19,11 @@ export interface ChatResponse {
     conversationId: string;
     ticketFolio?: string;
     error?: string;
+    contactCard?: {
+        fullName: string;
+        phoneNumber: string;
+        organization?: string;
+    };
     metadata?: {
         toolsUsed?: string[];
         processingTimeMs?: number;
@@ -132,6 +137,11 @@ export interface WorkflowOutput {
     ticketFolio?: string;
     error?: string;
     toolsUsed?: string[];
+    contactCard?: {
+        fullName: string;
+        phoneNumber: string;
+        organization?: string;
+    };
 }
 
 // ============================================

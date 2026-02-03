@@ -165,6 +165,11 @@ async function handleChat(req: Request, res: Response): Promise<void> {
         if (result.ticketFolio) {
             response.ticketFolio = result.ticketFolio;
         }
+
+        // Include contact card if present (e.g., CEA redirect)
+        if (result.contactCard) {
+            response.contactCard = result.contactCard;
+        }
         
         console.log(`[${requestId}] Classification: ${result.classification}`);
         console.log(`[${requestId}] Response length: ${response.response.length} chars`);
@@ -241,6 +246,36 @@ async function sendWhatsAppMessage(instance: string, to: string, text: string): 
     }
 }
 
+async function sendWhatsAppContact(instance: string, to: string, contact: { fullName: string; phoneNumber: string; organization?: string }): Promise<void> {
+    const evolutionUrl = process.env.EVOLUTION_API_URL || "https://evolution.whoopflow.com";
+    const evolutionKey = process.env.EVOLUTION_API_KEY || "";
+
+    try {
+        const response = await fetch(`${evolutionUrl}/message/sendContact/${instance}`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "apikey": evolutionKey
+            },
+            body: JSON.stringify({
+                number: to.replace("@s.whatsapp.net", ""),
+                contact: [{
+                    fullName: contact.fullName,
+                    wuid: contact.phoneNumber.replace("+", "") + "@s.whatsapp.net",
+                    phoneNumber: contact.phoneNumber,
+                    organization: contact.organization || ""
+                }]
+            })
+        });
+
+        if (!response.ok) {
+            console.error(`[Evolution] Failed to send contact: ${response.status}`);
+        }
+    } catch (error) {
+        console.error(`[Evolution] Error sending contact:`, error);
+    }
+}
+
 app.post("/webhook/evolution", async (req: Request, res: Response): Promise<void> => {
     const requestId = (req as any).requestId || crypto.randomUUID().substring(0, 8);
 
@@ -287,6 +322,12 @@ app.post("/webhook/evolution", async (req: Request, res: Response): Promise<void
         // Send response back via WhatsApp
         if (result.output_text) {
             await sendWhatsAppMessage(instance, remoteJid, result.output_text);
+        }
+
+        // Send contact card if present (e.g., CEA redirect)
+        if (result.contactCard) {
+            await sendWhatsAppContact(instance, remoteJid, result.contactCard);
+            console.log(`[${requestId}] Contact card sent: ${result.contactCard.fullName}`);
         }
 
         console.log(`[${requestId}] Response sent to ${remoteJid}`);
