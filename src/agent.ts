@@ -1190,14 +1190,14 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowOutput>
 
                 } else if (classification === "agua_cea") {
                     // Step 3a: CEA -> Redirect to dedicated WhatsApp agent
-                    console.log(`[Workflow] CEA -> Redirecting to WhatsApp contact +52 4424700013`);
+                    console.log(`[Workflow] CEA -> Redirecting to WhatsApp contact 4424700013`);
 
                     output = `Para temas de agua potable, la CEA cuenta con un asistente especializado que te puede ayudar con pagos, reportes de fugas, consulta de consumos y mas.\n\nTe comparto el contacto para que puedas escribirle directamente:`;
 
                     // Signal to server to send contact card
                     const contactCard = {
                         fullName: "CEA Querétaro - Agua Potable",
-                        phoneNumber: "+524424700013",
+                        phoneNumber: "4424700013",
                         organization: "Comisión Estatal de Aguas"
                     };
 
