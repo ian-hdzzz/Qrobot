@@ -309,27 +309,41 @@ app.post("/webhook/evolution", async (req: Request, res: Response): Promise<void
 
         console.log(`[${requestId}] Evolution webhook from ${remoteJid}: "${messageText.substring(0, 50)}..."`);
 
-        // Import findOrCreateChatwootContact dynamically to avoid circular dependency
-        const { findOrCreateChatwootContact } = await import("./tools.js");
+        // Import Chatwoot helpers dynamically to avoid circular dependency
+        const { findOrCreateChatwootContact, findOrCreateChatwootConversation } = await import("./tools.js");
         
-        // Find or create contact in Chatwoot for ticket linking
+        // Step 1: Find or create contact in Chatwoot
         const contactId = await findOrCreateChatwootContact(remoteJid, pushName);
         
-        if (contactId) {
-            console.log(`[${requestId}] Chatwoot contact resolved: ${contactId}`);
-        } else {
+        if (!contactId) {
             console.warn(`[${requestId}] Could not resolve Chatwoot contact`);
+        } else {
+            console.log(`[${requestId}] Chatwoot contact resolved: ${contactId}`);
+        }
+        
+        // Step 2: Find or create conversation in Chatwoot (required for ticket linking)
+        let chatwootConversationId: number | undefined = undefined;
+        
+        if (contactId) {
+            chatwootConversationId = await findOrCreateChatwootConversation(contactId) || undefined;
+            
+            if (chatwootConversationId) {
+                console.log(`[${requestId}] Chatwoot conversation resolved: ${chatwootConversationId}`);
+            } else {
+                console.warn(`[${requestId}] Could not resolve Chatwoot conversation`);
+            }
         }
 
         // Process with agent
         const result = await runWorkflow({
             input_as_text: messageText,
-            conversationId: remoteJid,
+            conversationId: remoteJid, // Keep Evolution ID for internal tracking
             contactId: contactId || undefined,
             metadata: {
                 source: "evolution",
                 instance: instance,
-                pushName: pushName
+                pushName: pushName,
+                chatwootConversationId: chatwootConversationId // Pass real Chatwoot conversation ID
             }
         });
 

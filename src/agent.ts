@@ -1859,7 +1859,11 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowOutput>
     const conversationId = input.conversationId || crypto.randomUUID();
 
     // Extract Chatwoot context for linking tickets
-    const chatwootConversationId = input.conversationId ? parseInt(input.conversationId, 10) : undefined;
+    // Priority: use chatwootConversationId from metadata if available (real Chatwoot ID)
+    // Otherwise try to parse conversationId as number (legacy behavior)
+    const chatwootConversationId = input.metadata?.chatwootConversationId 
+        || (input.conversationId ? parseInt(input.conversationId, 10) : undefined);
+    
     const chatwootContext: ChatwootContext = {
         conversationId: !isNaN(chatwootConversationId!) ? chatwootConversationId : undefined,
         contactId: input.contactId

@@ -568,6 +568,64 @@ export async function findOrCreateChatwootContact(phoneNumber: string, name?: st
     }
 }
 
+/**
+ * Finds or creates a conversation in Chatwoot for a contact
+ * Returns the conversation_id for linking tickets
+ */
+export async function findOrCreateChatwootConversation(contactId: number, inboxId?: number): Promise<number | null> {
+    console.log(`[find_or_create_conversation] Looking up conversation for contact: ${contactId}`);
+    
+    try {
+        const accountId = parseInt(process.env.AGENT_ACCOUNT_ID || '1');
+        const defaultInboxId = inboxId || 1; // Use provided inbox or default to 1
+        
+        // First, try to find existing open conversation for this contact
+        const existingConversations = await pgQuery<{ id: number; status: string }>(`
+            SELECT id, status 
+            FROM conversations 
+            WHERE contact_id = $1 
+              AND account_id = $2
+              AND status IN ('open', 'pending')
+            ORDER BY created_at DESC
+            LIMIT 1
+        `, [contactId, accountId]);
+        
+        if (existingConversations && existingConversations.length > 0) {
+            console.log(`[find_or_create_conversation] Found existing conversation: ${existingConversations[0].id}`);
+            return existingConversations[0].id;
+        }
+        
+        // No open conversation, create new one
+        console.log(`[find_or_create_conversation] Creating new conversation for contact ${contactId}`);
+        
+        const newConversation = await pgQuery<{ id: number }>(`
+            INSERT INTO conversations (
+                account_id,
+                inbox_id,
+                contact_id,
+                status,
+                created_at,
+                updated_at
+            ) VALUES (
+                $1, $2, $3, 'open', NOW(), NOW()
+            )
+            RETURNING id
+        `, [accountId, defaultInboxId, contactId]);
+        
+        if (newConversation && newConversation.length > 0) {
+            console.log(`[find_or_create_conversation] Created new conversation: ${newConversation[0].id}`);
+            return newConversation[0].id;
+        }
+        
+        console.warn(`[find_or_create_conversation] Failed to create conversation`);
+        return null;
+        
+    } catch (error) {
+        console.error(`[find_or_create_conversation] Error:`, error);
+        return null;
+    }
+}
+
 // ============================================
 // Ticket Creation Helper (for reuse)
 // ============================================
