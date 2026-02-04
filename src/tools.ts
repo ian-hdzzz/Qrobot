@@ -580,18 +580,19 @@ export async function findOrCreateChatwootConversation(contactId: number, inboxI
         const defaultInboxId = inboxId || 1; // Use provided inbox or default to 1
         
         // First, try to find existing open conversation for this contact
-        const existingConversations = await pgQuery<{ id: number; status: string }>(`
+        // Chatwoot status: 0=open, 1=resolved, 2=pending
+        const existingConversations = await pgQuery<{ id: number; status: number }>(`
             SELECT id, status 
             FROM conversations 
             WHERE contact_id = $1 
               AND account_id = $2
-              AND status IN ('open', 'pending')
+              AND status IN (0, 2)
             ORDER BY created_at DESC
             LIMIT 1
         `, [contactId, accountId]);
         
         if (existingConversations && existingConversations.length > 0) {
-            console.log(`[find_or_create_conversation] Found existing conversation: ${existingConversations[0].id}`);
+            console.log(`[find_or_create_conversation] Found existing conversation: ${existingConversations[0].id} (status: ${existingConversations[0].status})`);
             return existingConversations[0].id;
         }
         
@@ -604,10 +605,15 @@ export async function findOrCreateChatwootConversation(contactId: number, inboxI
                 inbox_id,
                 contact_id,
                 status,
+                display_id,
                 created_at,
                 updated_at
             ) VALUES (
-                $1, $2, $3, 'open', NOW(), NOW()
+                $1, $2, $3, 0, (
+                    SELECT COALESCE(MAX(display_id), 0) + 1 
+                    FROM conversations 
+                    WHERE account_id = $1
+                ), NOW(), NOW()
             )
             RETURNING id
         `, [accountId, defaultInboxId, contactId]);
