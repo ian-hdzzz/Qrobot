@@ -1865,7 +1865,9 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowOutput>
         || (input.conversationId ? parseInt(input.conversationId, 10) : undefined);
     
     const chatwootContext: ChatwootContext = {
-        conversationId: !isNaN(chatwootConversationId!) ? chatwootConversationId : undefined,
+        conversationId: (typeof chatwootConversationId === 'number' && !isNaN(chatwootConversationId)) 
+            ? chatwootConversationId 
+            : undefined,
         contactId: input.contactId
     };
 
