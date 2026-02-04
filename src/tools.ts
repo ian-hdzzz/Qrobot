@@ -506,6 +506,69 @@ async function pgQuery<T = any>(query: string, params?: any[]): Promise<T[]> {
 }
 
 // ============================================
+// Chatwoot Contact Helper
+// ============================================
+
+/**
+ * Finds or creates a contact in Chatwoot by phone number
+ * Returns the contact_id for linking tickets
+ */
+export async function findOrCreateChatwootContact(phoneNumber: string, name?: string): Promise<number | null> {
+    console.log(`[find_or_create_contact] Looking up contact for phone: ${phoneNumber}`);
+    
+    try {
+        // Clean phone number (remove @s.whatsapp.net suffix if present)
+        const cleanPhone = phoneNumber.replace(/@s\.whatsapp\.net$/, '');
+        
+        // First, try to find existing contact by phone number
+        const existingContacts = await pgQuery<{ id: number; name: string }>(`
+            SELECT id, name 
+            FROM contacts 
+            WHERE phone_number = $1 
+               OR identifier = $1
+            LIMIT 1
+        `, [cleanPhone]);
+        
+        if (existingContacts && existingContacts.length > 0) {
+            console.log(`[find_or_create_contact] Found existing contact: ${existingContacts[0].id} (${existingContacts[0].name})`);
+            return existingContacts[0].id;
+        }
+        
+        // Contact doesn't exist, create new one
+        console.log(`[find_or_create_contact] Contact not found, creating new contact`);
+        
+        const accountId = parseInt(process.env.AGENT_ACCOUNT_ID || '1');
+        const contactName = name || `WhatsApp ${cleanPhone}`;
+        
+        const newContact = await pgQuery<{ id: number }>(`
+            INSERT INTO contacts (
+                account_id,
+                name,
+                phone_number,
+                identifier,
+                created_at,
+                updated_at
+            ) VALUES (
+                $1, $2, $3, $4, NOW(), NOW()
+            )
+            RETURNING id
+        `, [accountId, contactName, cleanPhone, cleanPhone]);
+        
+        if (newContact && newContact.length > 0) {
+            console.log(`[find_or_create_contact] Created new contact: ${newContact[0].id} (${contactName})`);
+            return newContact[0].id;
+        }
+        
+        console.warn(`[find_or_create_contact] Failed to create contact`);
+        return null;
+        
+    } catch (error) {
+        console.error(`[find_or_create_contact] Error:`, error);
+        return null;
+    }
+}
+
+// ============================================
 // Ticket Creation Helper (for reuse)
 // ============================================
 

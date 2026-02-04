@@ -305,17 +305,31 @@ app.post("/webhook/evolution", async (req: Request, res: Response): Promise<void
 
         const remoteJid = payload.data.key.remoteJid;
         const instance = payload.instance;
+        const pushName = payload.data.pushName;
 
         console.log(`[${requestId}] Evolution webhook from ${remoteJid}: "${messageText.substring(0, 50)}..."`);
+
+        // Import findOrCreateChatwootContact dynamically to avoid circular dependency
+        const { findOrCreateChatwootContact } = await import("./tools.js");
+        
+        // Find or create contact in Chatwoot for ticket linking
+        const contactId = await findOrCreateChatwootContact(remoteJid, pushName);
+        
+        if (contactId) {
+            console.log(`[${requestId}] Chatwoot contact resolved: ${contactId}`);
+        } else {
+            console.warn(`[${requestId}] Could not resolve Chatwoot contact`);
+        }
 
         // Process with agent
         const result = await runWorkflow({
             input_as_text: messageText,
             conversationId: remoteJid,
+            contactId: contactId || undefined,
             metadata: {
                 source: "evolution",
                 instance: instance,
-                pushName: payload.data.pushName
+                pushName: pushName
             }
         });
 
