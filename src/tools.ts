@@ -585,13 +585,7 @@ export async function createTicketDirect(input: CreateTicketInput): Promise<Crea
 
         // Map values to PostgreSQL enum types
         const serviceType = SERVICE_TYPE_MAP[input.service_type] || "general";
-        
-        // IMPORTANT: PostgreSQL enum ticket_type_code only has CEA codes (FUG, ACL, PAG, etc.)
-        // For government services, we use "URG" (urgente) as fallback until the enum is updated
-        const ceaTicketTypes = ["fuga", "aclaraciones", "pagos", "lecturas", "revision_recibo", "recibo_digital", "urgente"];
-        const ticketType = ceaTicketTypes.includes(input.service_type) 
-            ? TICKET_CODES[input.service_type] 
-            : "URG";  // Use URG (urgente) for all government services - guaranteed to exist
+        const ticketType = TICKET_CODES[input.service_type] || "GEN";
         
         const priority = PRIORITY_MAP[input.priority || "media"] || "medium";
         const status = "open"; // Always start as open
