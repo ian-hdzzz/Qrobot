@@ -1860,12 +1860,13 @@ export async function runWorkflow(input: WorkflowInput): Promise<WorkflowOutput>
 
     // Extract Chatwoot context for linking tickets
     // Priority: use chatwootConversationId from metadata if available (real Chatwoot ID)
-    // Otherwise try to parse conversationId as number (legacy behavior)
-    const chatwootConversationId = input.metadata?.chatwootConversationId 
+    // Otherwise try to parse conversationId, but only if it's a reasonable Chatwoot ID (< 1 million)
+    // WhatsApp remoteJids (e.g. 5217711202916) are phone numbers and NOT Chatwoot conversation IDs
+    const chatwootConversationId = (input.metadata?.chatwootConversationId as number | undefined)
         || (input.conversationId ? parseInt(input.conversationId, 10) : undefined);
-    
+    const isValidChatwootConversationId = chatwootConversationId && !isNaN(chatwootConversationId) && chatwootConversationId < 1_000_000;
     const chatwootContext: ChatwootContext = {
-        conversationId: !isNaN(chatwootConversationId!) ? chatwootConversationId : undefined,
+        conversationId: isValidChatwootConversationId ? chatwootConversationId : undefined,
         contactId: input.contactId
     };
 
