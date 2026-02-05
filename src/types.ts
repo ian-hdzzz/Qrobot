@@ -45,7 +45,8 @@ export type Classification =
     | "appqro"
     | "programas_sedesoq"
     | "hablar_asesor"
-    | "tickets";
+    | "tickets"
+    | "no_se";
 
 export type CeaSubClassification =
     | "fuga"
